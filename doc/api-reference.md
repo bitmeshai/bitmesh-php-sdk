@@ -12,7 +12,7 @@ Reference for the `BitmeshAI\BitmeshClient` class and its methods. The client ta
 
 ### `new BitmeshClient(string $consumerKey, string $consumerSecret, string $apiBaseUrl = '...', string $userAgent = '...')`
 
-- **Description**: Create a new Bitmesh AI client. Use this instance to call `chat()`, `image()`, `video()`, and `videoStatus()`.
+- **Description**: Create a new Bitmesh AI client. Use this instance to call `chat()`, `image()`, `video()`, `videoStatus()`, transcription, and tools methods.
 - **Parameters**
   - **`$consumerKey`** (required): `string` – OAuth consumer key provided by Bitmesh.
   - **`$consumerSecret`** (required): `string` – OAuth consumer secret provided by Bitmesh.
@@ -114,6 +114,84 @@ Reference for the `BitmeshAI\BitmeshClient` class and its methods. The client ta
   - **`outputs`**: may contain:
     - **`video_url`**: video URL (rewritten to your proxy when applicable)
     - **`cost`**: numeric cost fields (per provider)
+- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+
+---
+
+## Transcribe (recorded audio)
+
+### `transcribeRecordedFromUrl(string $audioUrl, array $options = [], array $extraPayload = [])`
+
+- **Description**: Submit a prerecorded transcription job using AssemblyAI URL mode.
+- **HTTP**: `POST /transcribe-recorded`
+- **Parameters**
+  - `$audioUrl` (required): `string` – Public URL to the audio file.
+  - `$options` (optional): `array<string,mixed>` – Optional transcription fields (common ones from `doc/endpoints.md`):
+    - `speech_models`: `array` (`universal-3-pro | universal-2`)
+    - `speech_model`: `string` (alias mapped to `speech_models` internally)
+    - `language_code`: `string`
+    - `punctuate`: `boolean`
+    - `format_text`: `boolean`
+    - `dual_channel`: `boolean`
+    - `language_detection`: `boolean`
+    - `webhook_url`: `string` (URL)
+    - `test`: `boolean`
+  - `$extraPayload` (optional): Extra fields merged into the request body.
+- **Returns**: `array<string, mixed>` – Provider response (typically includes `id`).
+- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+
+---
+
+### `transcribeRecordedFromFile(string $audioFilePath, array $options = [], array $extraPayload = [])`
+
+- **Description**: Submit a prerecorded transcription job using multipart upload mode.
+- **HTTP**: `POST /transcribe-recorded` with `multipart/form-data`
+- **Parameters**
+  - `$audioFilePath` (required): `string` – Path to an audio file (mp3/wav/m4a/mp4/flac/ogg/webm).
+  - `$options` (optional): Same optional fields as URL mode (see `transcribeRecordedFromUrl()`), excluding `audio_url` (the SDK will not send `audio_url` in this method).
+  - `$extraPayload` (optional): Extra fields merged into multipart non-file fields.
+- **Returns**: `array<string, mixed>`
+- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+
+---
+
+### `transcribeRecordedStatus(string $id, array $queryParams = [])`
+
+- **Description**: Poll transcription job status/result.
+- **HTTP**: `GET /transcribe-recorded/{id}`
+- **Parameters**
+  - `$id` (required): `string` – Job id from a prior submission.
+  - `$queryParams` (optional): Query params (common):
+    - `test`: `boolean`
+- **Returns**: `array<string, mixed>` – Provider status payload.
+- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+
+---
+
+## Tools
+
+### `backgroundRemoval(string $imageFilePath, ?string $returnForm = null, array $options = [], array $extraPayload = [])`
+
+- **Description**: Tool endpoint that removes the background from an uploaded image.
+- **HTTP**: `POST /tools/general/background-removal` with `multipart/form-data`
+- **Parameters**
+  - `$imageFilePath` (required): `string` – Path to an input image file.
+  - `$returnForm` (optional): `string|null` – One of `mask | whiteBK | crop`.
+  - `$options` (optional): `array<string,mixed>` – Optional fields (commonly `test`).
+  - `$extraPayload` (optional): Extra multipart non-file fields merged in.
+- **Returns**: `array<string, mixed>` – Normalized tool response.
+- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+
+---
+
+### `queryAsyncTaskResult(string $taskId, array $extraPayload = [])`
+
+- **Description**: Query async tool task status/result.
+- **HTTP**: `POST /tools/query-async-task-result`
+- **Parameters**
+  - `$taskId` (required): `string` – `task_id` to query.
+  - `$extraPayload` (optional): Extra fields merged into JSON body.
+- **Returns**: `array<string, mixed>` – Task status/result payload.
 - **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
 
 ---
