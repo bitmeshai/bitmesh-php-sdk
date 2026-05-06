@@ -195,3 +195,62 @@ if (($status['status'] ?? '') === 'completed' && isset($status['outputs']['video
     echo "Video ready: " . $status['outputs']['video_url'] . "\n";
 }
 ```
+
+---
+ 
+## Transcribe (recorded audio)
+
+### Transcribe from an audio URL
+
+```php
+$response = $client->transcribeRecordedFromUrl(
+    'https://example.com/audio.mp3',
+    [
+        'language_code' => 'en',
+        'speech_models' => ['universal-3-pro'],
+    ]
+);
+
+$jobId = $response['id'] ?? null;
+```
+
+### Transcribe from an uploaded file
+
+```php
+$response = $client->transcribeRecordedFromFile(
+    '/path/to/audio.mp3',
+    [
+        'speech_models' => ['universal-2'],
+    ]
+);
+
+$jobId = $response['id'] ?? null;
+```
+
+### Poll transcription status
+
+```php
+$status = $client->transcribeRecordedStatus($jobId, ['test' => true]);
+
+echo "Transcribe status: " . ($status['status'] ?? 'unknown') . "\n";
+```
+
+---
+
+## Tools
+
+### Background removal
+
+```php
+$response = $client->backgroundRemoval(
+    '/path/to/input.jpg',
+    'mask',
+    ['test' => true]
+);
+```
+
+### Query async task result
+
+```php
+$response = $client->queryAsyncTaskResult('task-abc');
+```

@@ -305,6 +305,173 @@ class BitmeshClient
     }
 
     /**
+     * Submit a prerecorded transcription job (URL mode).
+     *
+     * Calls POST /transcribe-recorded
+     */
+    public function transcribeRecordedFromUrl(
+        string $audioUrl,
+        array $options = [],
+        array $extraPayload = []
+    ): array {
+        $url = $this->apiBaseUrl . '/transcribe-recorded';
+
+        $payload = [
+            'audio_url' => $audioUrl,
+        ];
+
+        $payload = array_merge($payload, $options, $extraPayload);
+
+        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($jsonBody === false) {
+            throw new \RuntimeException('Failed to encode transcribe URL payload as JSON.');
+        }
+
+        $method = 'POST';
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $authHeader = $this->buildAuthorizationHeader($oauthParams);
+        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
+
+        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
+        return $this->parseJsonResponseOrThrow($httpCode, $body);
+    }
+
+    /**
+     * Submit a prerecorded transcription job (upload mode).
+     *
+     * Calls POST /transcribe-recorded with multipart/form-data.
+     */
+    public function transcribeRecordedFromFile(
+        string $audioFilePath,
+        array $options = [],
+        array $extraPayload = []
+    ): array {
+        $url = $this->apiBaseUrl . '/transcribe-recorded';
+
+        // Ensure we never send audio_url in upload mode.
+        unset($options['audio_url'], $extraPayload['audio_url']);
+
+        $nonFileFields = array_merge($options, $extraPayload);
+        $normalizedNonFileFields = $this->normalizeMultipartNonFileFields($nonFileFields);
+
+        $method = 'POST';
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $authHeader = $this->buildAuthorizationHeader($oauthParams);
+
+        $payloadSignatureJson = $this->canonicalizeMultipartNonFileFieldsForSignature($nonFileFields);
+        $payloadSignature = hash('sha256', $payloadSignatureJson . $this->consumerKey . $oauthParams['oauth_signature']);
+
+        $multipartPostFields = ['audio' => new \CURLFile($audioFilePath)];
+        foreach ($normalizedNonFileFields as $key => $value) {
+            $multipartPostFields[$key] = $value;
+        }
+
+        [$httpCode, $body] = $this->sendMultipartRequest($url, $authHeader, $payloadSignature, $multipartPostFields);
+        return $this->parseJsonResponseOrThrow($httpCode, $body);
+    }
+
+    /**
+     * Poll transcription job status/result.
+     *
+     * Calls GET /transcribe-recorded/{id}
+     */
+    public function transcribeRecordedStatus(string $id, array $queryParams = []): array
+    {
+        $url = $this->apiBaseUrl . '/transcribe-recorded/' . rawurlencode($id);
+
+        if (!empty($queryParams)) {
+            $normalizedQueryParams = [];
+            foreach ($queryParams as $key => $value) {
+                if (is_bool($value)) {
+                    $normalizedQueryParams[$key] = $value ? '1' : '0';
+                } else {
+                    $normalizedQueryParams[$key] = $value;
+                }
+            }
+
+            $queryString = http_build_query($normalizedQueryParams);
+            if ($queryString !== '') {
+                $url .= '?' . $queryString;
+            }
+        }
+
+        $method = 'GET';
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $authHeader = $this->buildAuthorizationHeader($oauthParams);
+
+        // Payload signature for GET uses empty body.
+        $payloadSignature = hash('sha256', '' . $this->consumerKey . $oauthParams['oauth_signature']);
+
+        [$httpCode, $body] = $this->sendGetRequest($url, $authHeader, $payloadSignature);
+        return $this->parseJsonResponseOrThrow($httpCode, $body);
+    }
+
+    /**
+     * Tool: remove background from an uploaded image.
+     *
+     * Calls POST /tools/general/background-removal
+     */
+    public function backgroundRemoval(
+        string $imageFilePath,
+        ?string $returnForm = null,
+        array $options = [],
+        array $extraPayload = []
+    ): array {
+        $url = $this->apiBaseUrl . '/tools/general/background-removal';
+
+        $nonFileFields = [];
+        if ($returnForm !== null) {
+            $nonFileFields['return_form'] = $returnForm;
+        }
+        $nonFileFields = array_merge($nonFileFields, $options, $extraPayload);
+
+        $normalizedNonFileFields = $this->normalizeMultipartNonFileFields($nonFileFields);
+
+        $method = 'POST';
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $authHeader = $this->buildAuthorizationHeader($oauthParams);
+
+        $payloadSignatureJson = $this->canonicalizeMultipartNonFileFieldsForSignature($nonFileFields);
+        $payloadSignature = hash('sha256', $payloadSignatureJson . $this->consumerKey . $oauthParams['oauth_signature']);
+
+        $multipartPostFields = ['image' => new \CURLFile($imageFilePath)];
+        foreach ($normalizedNonFileFields as $key => $value) {
+            $multipartPostFields[$key] = $value;
+        }
+
+        [$httpCode, $body] = $this->sendMultipartRequest($url, $authHeader, $payloadSignature, $multipartPostFields);
+        return $this->parseJsonResponseOrThrow($httpCode, $body);
+    }
+
+    /**
+     * Tool: query async task status/result.
+     *
+     * Calls POST /tools/query-async-task-result
+     */
+    public function queryAsyncTaskResult(string $taskId, array $extraPayload = []): array
+    {
+        $url = $this->apiBaseUrl . '/tools/query-async-task-result';
+
+        $payload = [
+            'task_id' => $taskId,
+        ];
+        $payload = array_merge($payload, $extraPayload);
+
+        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($jsonBody === false) {
+            throw new \RuntimeException('Failed to encode query-async-task-result payload as JSON.');
+        }
+
+        $method = 'POST';
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $authHeader = $this->buildAuthorizationHeader($oauthParams);
+        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
+
+        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
+        return $this->parseJsonResponseOrThrow($httpCode, $body);
+    }
+
+    /**
      * Send HTTP request to Bitmesh AI.
      *
      * @param string $url
@@ -389,6 +556,156 @@ class BitmeshClient
         curl_close($ch);
 
         return [$httpCode, $body];
+    }
+
+    /**
+     * Send HTTP multipart/form-data request to Bitmesh AI (e.g. /tools/... uploads).
+     *
+     * @param string $url
+     * @param string $authHeader
+     * @param string $payloadSignature Payload signature for non-file fields.
+     * @param array<string,mixed> $multipartPostFields Multipart fields; file fields should use CURLFile.
+     *
+     * @return array{0:int,1:string} [HTTP status code, response body]
+     *
+     * @throws \RuntimeException on transport errors
+     */
+    protected function sendMultipartRequest(
+        string $url,
+        string $authHeader,
+        string $payloadSignature,
+        array $multipartPostFields
+    ): array {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                'Authorization: ' . $authHeader,
+                'Accept: application/json',
+                'User-Agent: ' . $this->userAgent,
+                'X-Payload-Signature: ' . $payloadSignature,
+            ],
+            CURLOPT_HEADER => false,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $multipartPostFields,
+        ]);
+
+        $body = curl_exec($ch);
+        if ($body === false) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            throw new \RuntimeException('Curl error while calling Bitmesh: ' . $error);
+        }
+
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$httpCode, $body];
+    }
+
+    /**
+     * Normalize non-file multipart values to match how PHP will parse them.
+     *
+     * Multipart form scalars are sent as strings; to keep signature validation consistent,
+     * we normalize booleans and numbers to string equivalents before signing.
+     *
+     * @param mixed $value
+     *
+     * @return mixed
+     */
+    private function normalizeMultipartNonFileValue(mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        if (is_array($value)) {
+            $normalized = [];
+            foreach ($value as $k => $v) {
+                $normalized[$k] = $this->normalizeMultipartNonFileValue($v);
+            }
+            return $normalized;
+        }
+
+        // Strings (and other scalar-ish values) go out as strings.
+        return (string) $value;
+    }
+
+    /**
+     * Canonicalize non-file fields for multipart request signing.
+     *
+     * - drop nulls
+     * - normalize scalars to string equivalents
+     * - ksort keys
+     * - json_encode with JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+     */
+    private function canonicalizeMultipartNonFileFieldsForSignature(array $nonFileFields): string
+    {
+        $normalized = $this->normalizeMultipartNonFileFields($nonFileFields);
+        ksort($normalized);
+
+        $jsonString = json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($jsonString === false) {
+            throw new \RuntimeException('Failed to encode multipart signature payload as JSON.');
+        }
+
+        return $jsonString;
+    }
+
+    /**
+     * Normalize non-file fields into a form that will be parsed consistently from multipart.
+     *
+     * This returns an associative array with nulls dropped, and scalars normalized to strings.
+     *
+     * @param array<string,mixed> $nonFileFields
+     * @return array<string,mixed>
+     */
+    private function normalizeMultipartNonFileFields(array $nonFileFields): array
+    {
+        $normalized = [];
+        foreach ($nonFileFields as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+            $normalized[$key] = $this->normalizeMultipartNonFileValue($value);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Decode JSON response and throw consistent RuntimeException for non-200.
+     *
+     * @return array<string, mixed>
+     */
+    private function parseJsonResponseOrThrow(int $httpCode, string $body): array
+    {
+        $decoded = json_decode($body, true);
+
+        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+            throw new \RuntimeException(
+                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
+            );
+        }
+
+        if ($httpCode !== 200) {
+            $message = 'Bitmesh API returned HTTP ' . $httpCode;
+            if (is_array($decoded) && isset($decoded['error'])) {
+                $message .= ' - ' . json_encode($decoded['error']);
+            }
+            throw new \RuntimeException($message);
+        }
+
+        return is_array($decoded) ? $decoded : ['data' => $decoded];
     }
 
     /**

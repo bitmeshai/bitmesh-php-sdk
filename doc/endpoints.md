@@ -1,10 +1,14 @@
-## Bitmesh API Reference
+## AI Proxy API Reference
 
 Basic reference for the public HTTP API exposed by this service.
 
-- **Base URL**: `https://<your-domain>`  
-- **Content Type**: `application/json` for all JSON endpoints  
-- **Authentication**: Protected endpoints require a valid API key via the OAuthOneLegged flow (see middleware stack in code). The `/imgrslt/{id}` route is public.
+- **Base URL**: `https://<your-domain>`
+- **Content Type**:
+  - Most endpoints use `application/json`
+  - Tool upload endpoints use `multipart/form-data`
+- **Authentication**: Protected endpoints require OAuthOneLegged + API key checks.
+  - **JSON bodies** (`application/json`): `X-Payload-Signature = sha256(raw_request_body + consumer_key + oauth_signature)`
+  - **Tool multipart uploads** (`tools/` + file fields): sign canonical JSON of non-file fields (`ksort`, `json_encode`) as `sha256(json_string + consumer_key + oauth_signature)`
 
 ---
 
@@ -12,160 +16,209 @@ Basic reference for the public HTTP API exposed by this service.
 
 ### `GET /test`
 
-- **Description**: Simple authenticated health-check to verify OAuth/API-key middleware and rate limiting are working.
-- **Auth**: Required (same stack as main API).
-- **Request Body**: _None_
-- **Query Parameters**: _None_
-- **Response**
-  - **Status**: `200 OK`
-  - **Body**:
+- **Description**: Authenticated health-check endpoint.
+- **Auth**: Required.
+- **Response**: `200 OK`
 
-    ```json
-    {
-      "message": "you are the man"
-    }
-    ```
+```json
+{
+  "message": "you are the man"
+}
+```
 
 ---
 
-## Chat Completions
+## Chat
 
-### `POST /chat`  
+### `POST /chat`
 ### `POST /v1/chat`
 
-- **Description**: Proxy chat completion endpoint, forwards to the configured AI provider based on model and API key configuration.
-- **Auth**: Required (OAuthOneLegged + API key + rate limiting).
-- **Request Headers**
-  - **`Content-Type`**: `application/json`
-  - **Auth headers**: As required by OAuthOneLegged / API key middleware (see middleware implementation).
-- **Request Body**
-  - **`model`**:  
-    - Type: `string`  
-    - Required if the API key does **not** have a default model (`ai_model_id === null`).  
-    - **Prohibited** if the API key has a fixed default model.
-  - **`messages`** (required)
-    - Type: `array` of objects
-    - Constraints: minimum 1 element
-    - Items:
-      - **`role`** (required): `string`, one of: `system`, `user`, `assistant`, `tool`
-      - **`content`** (required): `string`
-  - **Optional parameters**
-    - **`max_tokens`**: `integer` ≥ 1  
-    - **`temperature`**: `number` between 0 and 2  
-    - **`repetition_penalty`**: `number` ≥ 0  
-    - **`frequency_penalty`**: `number` between -2 and 2  
-    - **`presence_penalty`**: `number` between -2 and 2  
-    - **`test`**: `boolean` – if true, charges are not applied (`live` flag is false).
+- **Description**: Chat completion proxy.
+- **Auth**: Required.
+- **Body**
+  - `model` (`string`) - required when API key has no fixed model, prohibited when key is fixed
+  - `messages` (required `array`, min 1)
+    - `messages.*.role`: `system | user | assistant | tool`
+    - `messages.*.content`: mixed/string
+  - Optional: `max_tokens`, `temperature`, `repetition_penalty`, `frequency_penalty`, `presence_penalty`, `test`
 - **Responses**
-  - **200 OK**: Successful response from provider
-    - Body: Raw provider response, including at least:
-      - **`id`**: provider-side request ID
-      - **`usage`** (shape depends on provider)
-        - May include `total_tokens`, `prompt_tokens`, `completion_tokens` or camelCase equivalents.
-      - **`choices`** / similar content field, depending on provider.
-  - **4xx**: Validation or provider errors
-    - `422 Unprocessable Entity` – Laravel validation error, body:
-      - `error`: `"Validation failed"`
-      - `errors`: object keyed by field name.
-  - **5xx**: Provider or internal failure
-    - `500 Internal Server Error`
-    - Body:
-      - `error`: `"Internal server error"` or provider error message.
+  - `200` provider response
+  - `422` validation error
+  - `4xx/5xx` provider/internal error
 
 ---
 
-## Image Generation
+## Image
 
-### `POST /image`  
+### `POST /image`
 ### `POST /v1/image`
 
-- **Description**: Generate images via underlying AI providers and return metadata and proxied URLs.
-- **Auth**: Required (OAuthOneLegged + API key + rate limiting).
-- **Request Headers**
-  - `Content-Type: application/json`
-- **Request Body**
-  - **`model`**:
-    - Type: `string`
-    - Required if API key has no default model; prohibited if API key has a fixed model.
-  - **`prompt`** (required): `string`
-  - **Optional parameters**
-    - **`width`**: `integer` ≥ 1  
-    - **`height`**: `integer` ≥ 1  
-    - **`steps`**: `integer` ≥ 1  
-    - **`seed`**: `integer`  
-    - **`n`**: `integer` ≥ 1 – number of images to generate
+- **Description**: Image generation proxy.
+- **Auth**: Required.
+- **Body**
+  - `model` (`string`) - same fixed-model rule as chat
+  - `prompt` (required `string`)
+  - Optional: `width`, `height`, `steps`, `seed`, `n`, `reference_images`
 - **Responses**
-  - **200 OK**
-    - Body: Provider image generation response, with all image URLs rewritten to your proxy:
-      - `data`: array of objects
-        - `url`: `string` – URL on this service, e.g. `https://<your-domain>/imgrslt/{id}`
-  - **422 Unprocessable Entity**
-    - Body:
-      - `error`: `"Validation failed"`
-      - `errors`: detailed field errors.
-  - **4xx/5xx**: Provider or internal errors, body contains an `error` field mirroring provider response.
+  - `200` provider response (`data[].url` rewritten to `/imgrslt/{id}`)
+  - `422` validation error
+  - `4xx/5xx` provider/internal error
 
 ---
 
-## Video Generation
+## Video
 
-### `POST /video`  
+### `POST /video`
 ### `POST /v1/video`
 
-- **Description**: Generate videos via the underlying AI provider.
-- **Auth**: Required (OAuthOneLegged + API key + rate limiting).
-- **Request Headers**
-  - `Content-Type: application/json`
-- **Request Body**
-  - **`model`**:
-    - Type: `string`
-    - Required if API key has no default model; prohibited if API key has a fixed model.
-  - **`prompt`** (required): `string`, length 1–32000 characters.
-  - **Optional parameters**
-    - **`width`**: `integer` ≥ 1  
-    - **`height`**: `integer` ≥ 1  
-    - **`seconds`**: `string` – duration (per provider API)  
-    - **`fps`**: `integer` ≥ 1  
-    - **`steps`**: `integer` between 10 and 50  
-    - **`seed`**: `integer`  
-    - **`guidance_scale`**: `number` ≥ 0  
-    - **`output_format`**: `string`, one of `MP4`, `WEBM`  
-    - **`output_quality`**: `integer` ≥ 1  
-    - **`negative_prompt`**: `string`  
-    - **`frame_images`**: `array`
-      - Items:
-        - `input_image` (required with `frame_images`): `string`
-        - `frame` (required with `frame_images`): `string` – frame index or `"last"`
-    - **`reference_images`**: `array` of `string`
+- **Description**: Video generation proxy.
+- **Auth**: Required.
+- **Body**
+  - `model` (`string`) - same fixed-model rule as chat
+  - `prompt` (required `string`)
+  - Optional: `width`, `height`, `seconds`, `fps`, `steps`, `seed`, `guidance_scale`, `output_format`, `output_quality`, `negative_prompt`, `frame_images`, `reference_images`
 - **Responses**
-  - **200 OK**
-    - Body: Raw provider result (shape depends on TogetherAI / provider). May contain:
-      - `id`: video job ID (used by `GET /video/{id}`).
-      - `outputs` / `data` sections with video URLs and metadata.
-  - **422 Unprocessable Entity**
-    - Standard Laravel validation error format (`error`, `errors`).
-  - **4xx/5xx**: Provider or internal errors with an `error` field.
+  - `200` provider response
+  - `422` validation error
+  - `4xx/5xx` provider/internal error
+
+### `GET /video/{id}`
+### `GET /v1/video/{id}`
+
+- **Description**: Get provider video job status/details.
+- **Auth**: Required.
+- **Path Params**
+  - `id` (`string`) provider video job id
+- **Responses**
+  - `200` provider status payload
+  - `4xx/5xx` error payload
 
 ---
 
-## Video Status & Retrieval
+## Transcribe
 
-### `GET /video/{id}`  
-### `GET /v1/video/{id}`
+### `POST /transcribe-recorded`
+### `POST /v1/transcribe-recorded`
 
-- **Description**: Fetch video generation job details from the provider and adjust pricing metadata.
-- **Auth**: Required (same middleware stack as generation endpoints).
-- **Path Parameters**
-  - **`id`**: `string` – provider video job ID.
-- **Response**
-  - **200 OK**
-    - Body: Provider video status payload, with:
-      - `id`: job ID
-      - `status`: e.g. `queued`, `running`, `completed`
-      - `outputs`: may contain:
-        - `video_url`: video URL (rewritten to use your `/imgrslt/{id}` proxy if it is a Together short URL)
-        - `cost`: numeric cost fields (used internally for accounting).
-  - **5xx / 4xx**: Error details with `error` message.
+- **Description**: Submit an AssemblyAI prerecorded transcription job.
+- **Auth**: Required.
+- **Content Type**: `application/json` (URL mode) or `multipart/form-data` (direct file upload)
+- **Mode selection**: The controller branches on whether `audio_url` is provided.
+  - If `audio_url` is present and non-empty - **URL mode** (Assembly pulls the media from that URL).
+  - If `audio_url` is missing, `null`, or an empty string - **Upload mode** (the proxy uploads the `audio` file to AssemblyAI `/v2/upload` and uses the returned URL internally).
+- **URL mode body** (JSON or multipart)
+  - `audio_url` (required `url`)
+  - `speech_models` (optional `array`, min 1)
+    - `speech_models.*`: `universal-3-pro | universal-2`
+  - `speech_model` (optional `string`)
+    - backward-compatible alias; internally mapped to `speech_models: [speech_model]` if `speech_models` is missing
+  - `language_code` (optional `string`)
+  - `punctuate` (optional `boolean`)
+  - `format_text` (optional `boolean`)
+  - `dual_channel` (optional `boolean`)
+  - `language_detection` (optional `boolean`)
+  - `webhook_url` (optional `url`)
+  - `test` (optional `boolean`)
+- **Upload mode body** (multipart/form-data)
+  - `audio` (required `file`) - mp3, wav, m4a, mp4, flac, ogg, or webm; max size controlled by `ASSEMBLY_AI_MAX_UPLOAD_SIZE_KB` (default `512000` KB = 500 MB)
+  - All other optional fields from URL mode are accepted (`speech_models`, `speech_model`, `language_code`, `punctuate`, `format_text`, `dual_channel`, `language_detection`, `webhook_url`, `test`)
+  - Do NOT send `audio_url` - its presence (even as empty string after trim is treated as URL mode)
+  - Signing: multipart requests sign the canonical JSON of non-file fields (`ksort` + `json_encode` with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`) as `sha256(json_string + consumer_key + oauth_signature)` - same rule as tool uploads
+- **Behavior**
+  - Enforces global active transcription limit (default `5`)
+  - Returns `429` when capacity is full
+  - Upload step (upload mode) runs before concurrency acquisition; a failed upload does not consume a slot
+  - Uploads to AssemblyAI are not separately billed; per-minute billing still settles on `completed`
+- **Responses**
+  - `200` accepted by provider (returns transcript `id`)
+  - `413` upload exceeds PHP `upload_max_filesize` / `post_max_size` (upload mode only); body includes `php_upload_error`
+  - `422` validation error, or invalid audio upload (partial, wrong mime, wrong size per Laravel rules)
+  - `429` concurrent limit reached
+  - `4xx/5xx` provider/internal error (including AssemblyAI upload failure)
+- **Upload error response body** (status `413` or `422`, upload mode only)
+  ```json
+  {
+    "error": "Invalid audio upload",
+    "details": "<human-readable reason, e.g. exceeds upload_max_filesize>",
+    "php_upload_error": 1
+  }
+  ```
+  `php_upload_error` corresponds to PHP `UPLOAD_ERR_*` constants (1 = `INI_SIZE`, 2 = `FORM_SIZE`, 3 = `PARTIAL`, 4 = `NO_FILE`).
+- **AssemblyAI upload failure body** (status echoed from provider)
+  ```json
+  { "error": "AssemblyAI upload failed", "details": "<provider error>" }
+  ```
+- **Infra note**: 500 MB uploads require `upload_max_filesize`, `post_max_size` (PHP) and `client_max_body_size` (nginx) to be tuned accordingly. For the Docker setup, `src/php.ini` is mounted into the container via `docker-compose.yml` as `/usr/local/etc/php/conf.d/zzz-custom.ini`.
+
+### `GET /transcribe-recorded/{id}`
+### `GET /v1/transcribe-recorded/{id}`
+
+- **Description**: Poll transcription job status/result.
+- **Auth**: Required.
+- **Path Params**
+  - `id` (`string`, route pattern `[A-Za-z0-9-]+`)
+- **Query Params**
+  - `test` (optional `boolean`)
+- **Behavior**
+  - On terminal states (`completed`/`error`), the service releases a concurrency slot
+  - On completed jobs, pricing is settled per minute using configured rates
+- **Responses**
+  - `200` transcription status/result payload
+  - `4xx/5xx` provider/internal error
+
+---
+
+## Tools
+
+These routes do not use chat/image/video model selection. Pricing is configured in `config/ai_tools.php`.
+
+### `POST /tools/general/background-removal`
+### `POST /v1/tools/general/background-removal`
+
+- **Description**: Remove background from an uploaded image.
+- **Auth**: Required.
+- **Headers**
+  - `Content-Type: multipart/form-data`
+  - `Authorization` (OAuth1)
+  - `X-Payload-Signature` using canonical non-file-field signing
+- **Body** (`multipart/form-data`)
+  - `image` (required file/image)
+  - `return_form` (optional `mask | whiteBK | crop`)
+  - `test` (optional `boolean`)
+- **Responses**
+  - `200` normalized success/failure payload
+  - `422` validation error
+  - `402` insufficient balance
+  - `503` tool disabled
+  - `4xx/5xx` provider/internal error
+
+### `POST /tools/portrait/try-on-clothes`
+### `POST /v1/tools/portrait/try-on-clothes`
+
+- **Description**: Virtual try-on clothing generation.
+- **Auth**: Required.
+- **Headers/Body**: multipart upload with OAuth signing as above.
+- **Responses**: normalized tool response + standard validation/billing errors.
+
+### `POST /tools/query-async-task-result`
+### `POST /v1/tools/query-async-task-result`
+
+- **Description**: Query async task status/result for tool jobs.
+- **Auth**: Required.
+- **Body**
+  - `task_id` (required `string`)
+- **Responses**
+  - `200` task status/result
+  - `422` validation error
+  - `4xx/5xx` provider/internal error
+
+### Public Tool Result Proxies
+
+### `GET /tools-result/{date}/{id}`
+### `GET /tools-result/{path}`
+
+- **Description**: Public proxy routes for tool result assets.
+- **Auth**: Not required.
 
 ---
 
@@ -173,22 +226,24 @@ Basic reference for the public HTTP API exposed by this service.
 
 ### `GET /imgrslt/{id}`
 
-- **Description**: Public image-serving endpoint that proxies images from TogetherAI short URLs.
+- **Description**: Public image proxy for Together image URLs.
 - **Auth**: Not required.
-- **Path Parameters**
-  - **`id`**: `string` – short image identifier (alphanumeric).
-- **Response**
-  - **200 OK**
-    - Binary image content; `Content-Type` header determined from upstream response (defaults to `image/png`).
-  - **404 Not Found**
-    - Text body: `"Resource not found"`
-  - **500 Internal Server Error**
-    - Text body: `"Error fetching image"`
+- **Responses**
+  - `200` binary image
+  - `404` not found
+  - `500` fetch error
 
 ---
 
 ## Notes
 
-- **Rate Limiting**: Endpoints are protected by multiple throttling middlewares (per-IP, per-API-key, and per-endpoint where configured).
-- **Billing**: The service calculates internal cost and user charges based on model configuration (`AiModel`, `getBestProvider()`); these values are stored in `ApiRequest` records and not all are exposed in the HTTP JSON response.
-- **Model Selection**: If an API key is bound to a specific model, clients must **not** send the `model` field; otherwise, calls will fail validation.
+- **Rate Limiting**: Multiple throttles are applied (IP, API key, endpoint-level where configured).
+- **Billing**:
+  - Chat/image/video use model/provider pricing tables
+  - Tools use `config/ai_tools.php` `cost`/`sell_price`
+  - Transcribe-recorded uses per-minute rates from `config/ai_providers.php` (`assembly_ai`)
+- **Model Selection**:
+  - Chat/image/video follow API-key fixed-model rules
+  - Tools do not use `model`
+  - Transcribe-recorded does not use `model`; it uses Assembly speech model parameters.
+
