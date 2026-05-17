@@ -1,203 +1,97 @@
 ## Bitmesh PHP SDK – API Reference
 
-Reference for the `BitmeshAI\BitmeshClient` class and its methods. The client talks to the Bitmesh HTTP API; for the raw HTTP contract see [endpoints.md](endpoints.md).
+Reference for the `BitmeshAI\BitmeshClient` class. All requests use the fixed host **`https://api.bitmesh.ai`**.
 
 - **Namespace**: `BitmeshAI`
 - **Class**: `BitmeshClient`
-- **Authentication**: All methods use OAuth 1.0 (OAuthOneLegged) with the consumer key/secret. The client sends the required headers and payload signature.
+- **Requirements**: PHP 8+, ext-curl, ext-json.
+- **Authentication (signed requests)**: OAuth 1.0 “one-legged” (`Authorization: OAuth ...`, HMAC-SHA1). JSON and GET bodies use **`X-Payload-Signature`**: SHA-256 of `body + consumerKey + oauthSignature` (empty string body for GET). Multipart requests sign a canonical JSON encoding of **non-file** fields only (see implementation), same header name.
+- **Unsigned**: `getToolsResult()` calls `GET .../tools-result/...` without OAuth (public asset fetch).
+
+On failure the client throws **`RuntimeException`** (HTTP status and body text, transport errors, missing files, invalid JSON, or validation errors such as empty id/path).
 
 ---
 
-## Client constructor
+## Constructor
 
-### `new BitmeshClient(string $consumerKey, string $consumerSecret, string $apiBaseUrl = '...', string $userAgent = '...')`
+### `new BitmeshClient(string $key, string $secret, int $timeoutSeconds = 30)`
 
-- **Description**: Create a new Bitmesh AI client. Use this instance to call `chat()`, `image()`, `video()`, `videoStatus()`, transcription, and tools methods.
-- **Parameters**
-  - **`$consumerKey`** (required): `string` – OAuth consumer key provided by Bitmesh.
-  - **`$consumerSecret`** (required): `string` – OAuth consumer secret provided by Bitmesh.
-  - **`$apiBaseUrl`** (optional): `string` – Base URL of the Bitmesh AI API. Default: `https://aiproxyapi-production.up.railway.app`. No trailing slash (trimmed automatically).
-  - **`$userAgent`** (optional): `string` – User-Agent header value. Default: `BitmeshPhpSdk/1.0`.
-
----
-
-## Chat completions
-
-### `chat(string|array $messages, ?string $model = null, array $options = [], array $extraPayload = [])`
-
-- **Description**: Proxy chat completion. Calls `POST /chat` (or `POST /v1/chat`) and forwards to the configured AI provider.
-- **HTTP**: `POST /chat`
-- **Parameters**
-  - **`$messages`** (required): `string|array`
-    - **`string`**: Convenience form; wrapped as a single `"user"` message.
-    - **`array`**: Full messages array as expected by the API. Minimum 1 element. Each item:
-      - **`role`** (required): `string`, one of: `system`, `user`, `assistant`, `tool`
-      - **`content`** (required): `string`
-  - **`$model`** (optional): `string|null`
-    - Pass a model name when the API key has no default model.
-    - Pass `null` when the API key has a fixed default model (do not send `model` in that case).
-  - **`$options`** (optional): `array<string, mixed>` – Optional request parameters. Supported keys:
-    - **`max_tokens`**: `integer` ≥ 1
-    - **`temperature`**: `number` between 0 and 2
-    - **`repetition_penalty`**: `number` ≥ 0
-    - **`frequency_penalty`**: `number` between -2 and 2
-    - **`presence_penalty`**: `number` between -2 and 2
-    - **`test`**: `boolean` – if `true`, charges are not applied (`live` flag is false).
-  - **`$extraPayload`** (optional): `array<string, mixed>` – Additional fields merged into the request body.
-- **Returns**: `array<string, mixed>` – Decoded JSON response (e.g. `id`, `usage`, `choices`).
-- **Throws**: `\RuntimeException` on HTTP errors, transport errors, or JSON decode errors (message includes status and body `error` when present).
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `$key` | `string` | OAuth consumer key |
+| `$secret` | `string` | OAuth consumer secret |
+| `$timeoutSeconds` | `int` | cURL timeout in seconds (default `30`) |
 
 ---
 
-## Image generation
+## `chat(array $payload): array`
 
-### `image(string $prompt, ?string $model = null, array $options = [], array $extraPayload = [])`
-
-- **Description**: Generate images via the configured AI provider. Calls `POST /image`. Image URLs in the response are rewritten to your proxy (e.g. `https://<your-domain>/imgrslt/{id}`).
-- **HTTP**: `POST /image`
-- **Parameters**
-  - **`$prompt`** (required): `string` – Prompt describing the image to generate.
-  - **`$model`** (optional): `string|null` – Same semantics as for `chat()` (omit when API key has a fixed model).
-  - **`$options`** (optional): `array<string, mixed>`. Supported keys:
-    - **`width`**: `integer` ≥ 1
-    - **`height`**: `integer` ≥ 1
-    - **`steps`**: `integer` ≥ 1
-    - **`seed`**: `integer`
-    - **`n`**: `integer` ≥ 1 – number of images to generate
-  - **`$extraPayload`** (optional): `array<string, mixed>` – Extra fields merged into the request body.
-- **Returns**: `array<string, mixed>` – Decoded JSON response (e.g. `data` array with `url` per image).
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /chat` with `Content-Type: application/json`
+- **Description**: Chat completions. Pass the **exact JSON body** the API expects (e.g. `model`, `messages`, `max_tokens`, `temperature`, …). If your API key is bound to a fixed model, omit `model` in the payload (the server may reject a conflicting `model` field).
+- **Returns**: Decoded JSON object (`array<string, mixed>`).
 
 ---
 
-## Video generation
+## `image(array $payload): array`
 
-### `video(string $prompt, ?string $model = null, array $options = [], array $extraPayload = [])`
-
-- **Description**: Generate videos via the underlying AI provider. Calls `POST /video`. Response may contain `id` (video job ID for `videoStatus()`) and `outputs` / `data`.
-- **HTTP**: `POST /video`
-- **Parameters**
-  - **`$prompt`** (required): `string` – Prompt for the video, length 1–32000 characters.
-  - **`$model`** (optional): `string|null` – Same semantics as for `chat()` (omit when API key has a fixed model).
-  - **`$options`** (optional): `array<string, mixed>`. Supported keys:
-    - **`width`**: `integer` ≥ 1
-    - **`height`**: `integer` ≥ 1
-    - **`seconds`**: `string` – duration (per provider API)
-    - **`fps`**: `integer` ≥ 1
-    - **`steps`**: `integer` between 10 and 50
-    - **`seed`**: `integer`
-    - **`guidance_scale`**: `number` ≥ 0
-    - **`output_format`**: `string`, one of `MP4`, `WEBM`
-    - **`output_quality`**: `integer` ≥ 1
-    - **`negative_prompt`**: `string`
-    - **`frame_images`**: `array` – Items:
-      - **`input_image`** (required with `frame_images`): `string`
-      - **`frame`** (required with `frame_images`): `string` – frame index or `"last"`
-    - **`reference_images`**: `array` of `string`
-  - **`$extraPayload`** (optional): `array<string, mixed>` – Extra fields merged into the request body.
-- **Returns**: `array<string, mixed>` – Decoded JSON response (e.g. `object`, `id`, `status`, `created_at`, `seconds`, `size`, or provider-specific `outputs` / `data`).
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /image` (`application/json`)
+- **Description**: Image generation. Payload fields depend on the provider (e.g. `prompt`, `model`, `reference_images`, dimensions, …).
 
 ---
 
-## Video status & retrieval
+## `video(array $payload): array`
 
-### `videoStatus(string $id)`
-
-- **Description**: Fetch video generation job details from the provider (status, outputs, video_url, cost). Calls `GET /video/{id}`.
-- **HTTP**: `GET /video/{id}`
-- **Parameters**
-  - **`$id`** (required): `string` – Provider video job ID (e.g. `id` from a prior `video()` response). The value is URL-encoded in the path.
-- **Returns**: `array<string, mixed>` – Decoded JSON response, e.g.:
-  - **`id`**: job ID
-  - **`status`**: e.g. `queued`, `running`, `in_progress`, `completed`
-  - **`outputs`**: may contain:
-    - **`video_url`**: video URL (rewritten to your proxy when applicable)
-    - **`cost`**: numeric cost fields (per provider)
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /video` (`application/json`)
+- **Description**: Video generation. Typical keys include `prompt`, `model`, `frame_images`, etc. The response shape is provider-specific (often includes `id` for a job). This client does **not** include a separate “poll video status” helper; use provider fields in the response or the HTTP API directly if you need follow-up polling.
 
 ---
 
-## Transcribe (recorded audio)
+## `transcribeFile(string $audioFilePath, array $fields = []): array`
 
-### `transcribeRecordedFromUrl(string $audioUrl, array $options = [], array $extraPayload = [])`
-
-- **Description**: Submit a prerecorded transcription job using AssemblyAI URL mode.
-- **HTTP**: `POST /transcribe-recorded`
-- **Parameters**
-  - `$audioUrl` (required): `string` – Public URL to the audio file.
-  - `$options` (optional): `array<string,mixed>` – Optional transcription fields (common ones from `doc/endpoints.md`):
-    - `speech_models`: `array` (`universal-3-pro | universal-2`)
-    - `speech_model`: `string` (alias mapped to `speech_models` internally)
-    - `language_code`: `string`
-    - `punctuate`: `boolean`
-    - `format_text`: `boolean`
-    - `dual_channel`: `boolean`
-    - `language_detection`: `boolean`
-    - `webhook_url`: `string` (URL)
-    - `test`: `boolean`
-  - `$extraPayload` (optional): Extra fields merged into the request body.
-- **Returns**: `array<string, mixed>` – Provider response (typically includes `id`).
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /transcribe-recorded` (`multipart/form-data`)
+- **Description**: Upload a local audio file. The file is sent as the **`audio`** part. `$fields` are non-file form fields (e.g. `speech_models` as nested arrays are flattened for multipart and included in the payload signature). The file must exist and be readable.
+- **Returns**: JSON response (e.g. often includes `id` for the transcript job).
 
 ---
 
-### `transcribeRecordedFromFile(string $audioFilePath, array $options = [], array $extraPayload = [])`
+## `getTranscribeRecorded(string $id, array $query = []): array`
 
-- **Description**: Submit a prerecorded transcription job using multipart upload mode.
-- **HTTP**: `POST /transcribe-recorded` with `multipart/form-data`
-- **Parameters**
-  - `$audioFilePath` (required): `string` – Path to an audio file (mp3/wav/m4a/mp4/flac/ogg/webm).
-  - `$options` (optional): Same optional fields as URL mode (see `transcribeRecordedFromUrl()`), excluding `audio_url` (the SDK will not send `audio_url` in this method).
-  - `$extraPayload` (optional): Extra fields merged into multipart non-file fields.
-- **Returns**: `array<string, mixed>`
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `GET /transcribe-recorded/{id}` (id is URL-encoded; optional `$query` merged into the query string)
+- **Description**: Poll transcription job status or fetch result. Empty or whitespace-only `$id` throws **`RuntimeException`**.
 
 ---
 
-### `transcribeRecordedStatus(string $id, array $queryParams = [])`
+## `toolsGeneralBackgroundRemoval(array $fields, string $imagePath): array`
 
-- **Description**: Poll transcription job status/result.
-- **HTTP**: `GET /transcribe-recorded/{id}`
-- **Parameters**
-  - `$id` (required): `string` – Job id from a prior submission.
-  - `$queryParams` (optional): Query params (common):
-    - `test`: `boolean`
-- **Returns**: `array<string, mixed>` – Provider status payload.
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /tools/general/background-removal` (multipart)
+- **Description**: Background removal. **`image`** is taken from `$imagePath`. Other tool options go in `$fields` (e.g. `return_form` => `mask` | `whiteBK` | `crop`). File must exist and be readable.
 
 ---
 
-## Tools
+## `toolsPortraitTryOnClothes(array $fields, array $files): array`
 
-### `backgroundRemoval(string $imageFilePath, ?string $returnForm = null, array $options = [], array $extraPayload = [])`
-
-- **Description**: Tool endpoint that removes the background from an uploaded image.
-- **HTTP**: `POST /tools/general/background-removal` with `multipart/form-data`
-- **Parameters**
-  - `$imageFilePath` (required): `string` – Path to an input image file.
-  - `$returnForm` (optional): `string|null` – One of `mask | whiteBK | crop`.
-  - `$options` (optional): `array<string,mixed>` – Optional fields (commonly `test`).
-  - `$extraPayload` (optional): Extra multipart non-file fields merged in.
-- **Returns**: `array<string, mixed>` – Normalized tool response.
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /tools/portrait/try-on-clothes` (multipart)
+- **Description**: Virtual try-on. `$files` maps **field name → absolute path** (e.g. `person_image`, `top_garment`, `bottom_garment`). `$fields` may include `task_type`, `resolution`, `restore_face`, etc. Every path must be a readable file.
 
 ---
 
-### `queryAsyncTaskResult(string $taskId, array $extraPayload = [])`
+## `toolsQueryAsyncTaskResult(string $taskId): array`
 
-- **Description**: Query async tool task status/result.
-- **HTTP**: `POST /tools/query-async-task-result`
-- **Parameters**
-  - `$taskId` (required): `string` – `task_id` to query.
-  - `$extraPayload` (optional): Extra fields merged into JSON body.
-- **Returns**: `array<string, mixed>` – Task status/result payload.
-- **Throws**: `\RuntimeException` on non-200 responses, transport errors, or JSON decode errors.
+- **HTTP**: `POST /tools/query-async-task-result` (`application/json` body `{"task_id":"..."}`)
+- **Description**: Poll an async tools task. Empty `$taskId` throws **`RuntimeException`**.
+
+---
+
+## `getToolsResult(string $path): string`
+
+- **HTTP**: `GET /tools-result/{path}` (path segments after `tools-result/`)
+- **Description**: Download raw bytes for a proxied tool result (often an image). **No** OAuth or payload signature. Pass the path relative to `tools-result/` (leading slashes are normalized). Empty path throws **`RuntimeException`**. Returns the response body as a **`string`** (binary-safe).
 
 ---
 
 ## Notes
 
-- **Rate limiting**: The API enforces throttling (per-IP, per-API-key, per-endpoint). The SDK does not retry; non-200 responses throw.
-- **Model selection**: If an API key is bound to a specific model, pass `null` for `$model` in `chat()`, `image()`, and `video()` so the client does not send a `model` field.
-- **Unlisted endpoints**: The SDK does not implement `GET /test` (health) or `GET /imgrslt/{id}` (public image proxy). Use HTTP directly or extend the client if needed.
+- **Success criteria**: HTTP status must be 2xx; JSON endpoints must decode to a JSON **object** (`array`), not a bare string/number/list at the top level.
+- **Rate limits**: The API may throttle; the client does not retry automatically.
+
+For runnable snippets, see [code-examples.md](code-examples.md).

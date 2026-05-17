@@ -1,6 +1,6 @@
 # Code Examples
 
-Runnable examples for the Bitmesh PHP SDK. See [api-reference.md](api-reference.md) for full parameter and return details.
+Examples for `BitmeshAI\BitmeshClient`. The client always calls **`https://api.bitmesh.ai`**. Each method mirrors the HTTP API: you pass **payload arrays** (or file paths) that match the server contract. See [api-reference.md](api-reference.md) for behavior and errors.
 
 ```php
 <?php
@@ -12,245 +12,177 @@ use BitmeshAI\BitmeshClient;
 $consumerKey = 'YOUR_CONSUMER_KEY';
 $consumerSecret = 'YOUR_CONSUMER_SECRET';
 
-$client = new BitmeshClient($consumerKey, $consumerSecret);
+// Optional third argument: timeout in seconds (default 30)
+$client = new BitmeshClient($consumerKey, $consumerSecret, 120);
 ```
 
 ---
 
-## Chat (simple)
+## Chat
 
-One-shot chat: pass a single string. The SDK wraps it as a `"user"` message.
+Send a JSON body as documented for `POST /chat`:
 
 ```php
-$response = $client->chat('What are some fun things to do with AI?');
+$response = $client->chat([
+    'model' => 'openai/gpt-4o-mini',
+    'messages' => [
+        ['role' => 'user', 'content' => 'Reply with exactly: ok'],
+    ],
+    'max_tokens' => 32,
+    'temperature' => 0,
+]);
 
-// Response shape depends on provider; typically has 'choices' and optionally 'usage'
 echo $response['choices'][0]['message']['content'] ?? json_encode($response);
 ```
 
-With an explicit model and options (e.g. `max_tokens`, `temperature`):
+If your key uses a **fixed default model**, omit `model` so the server does not reject the request:
 
 ```php
-$response = $client->chat(
-    'Explain quantum computing in one sentence.',
-    'meta-llama/Llama-3.2-3B-Instruct-Turbo',
-    [
-        'max_tokens' => 150,
-        'temperature' => 0.7,
-    ]
-);
-```
-
----
-
-## Chat with previous chat history
-
-Pass a full `messages` array to keep context (e.g. system prompt + prior user/assistant turns). Each item must have `role` and `content`.
-
-```php
-$messages = [
-    [
-        'role' => 'system',
-        'content' => 'You are a helpful assistant that answers briefly.',
+$response = $client->chat([
+    'messages' => [
+        ['role' => 'user', 'content' => 'Hello'],
     ],
-    [
-        'role' => 'user',
-        'content' => 'What is the capital of France?',
-    ],
-    [
-        'role' => 'assistant',
-        'content' => 'The capital of France is Paris.',
-    ],
-    [
-        'role' => 'user',
-        'content' => 'What is one famous landmark there?',
-    ],
-];
-
-$response = $client->chat($messages);
-
-$reply = $response['choices'][0]['message']['content'] ?? '';
-echo $reply;
-```
-
-Building history from a previous response (append assistant reply, then next user message):
-
-```php
-// After a chat() call, you might have:
-$previousMessages = [
-    ['role' => 'user', 'content' => 'Hello'],
-    ['role' => 'assistant', 'content' => 'Hi! How can I help?'],
-];
-
-$nextUserMessage = 'Tell me a short joke.';
-$messages = array_merge($previousMessages, [
-    ['role' => 'user', 'content' => $nextUserMessage],
 ]);
+```
 
-$response = $client->chat($messages);
-$assistantReply = $response['choices'][0]['message']['content'] ?? '';
+Vision-style content is expressed in the payload as the API expects (nested `content` arrays with `image_url`, etc.):
+
+```php
+$response = $client->chat([
+    'model' => 'google/gemma-3n-e4b-it',
+    'messages' => [
+        [
+            'role' => 'user',
+            'content' => [
+                ['type' => 'text', 'text' => 'What is in this image?'],
+                [
+                    'type' => 'image_url',
+                    'image_url' => ['url' => 'https://placecats.com/600/400'],
+                ],
+            ],
+        ],
+    ],
+    'max_tokens' => 256,
+]);
 ```
 
 ---
 
 ## Image
 
-Generate images with a required `prompt`. Optionally pass `model` and options such as `width`, `height`, `steps`, `seed`, `n`.
-
 ```php
-$response = $client->image('A sunset over the mountains');
+$response = $client->image([
+    'prompt' => 'A red bicycle by a canal',
+    'model' => 'wan-ai/wan2.6-image',
+    'reference_images' => [
+        'https://placecats.com/800/600',
+    ],
+]);
 
-// Response usually has 'data' with one or more items, each with 'url' (proxied)
-$imageUrl = $response['data'][0]['url'] ?? null;
-if ($imageUrl) {
-    echo "Image URL: $imageUrl\n";
-}
-```
-
-With model and options:
-
-```php
-$response = $client->image(
-    'A red dragon in a fantasy landscape',
-    'rundiffusion/juggernaut-lightning-flux',
-    [
-        'width' => 1024,
-        'height' => 1024,
-        'steps' => 1,
-        'seed' => 42,
-        'n' => 1,
-    ]
-);
+$jobOrData = $response; // shape depends on provider; often includes `id`
 ```
 
 ---
 
 ## Video
 
-Start a video generation job with a required `prompt`. The response includes a job `id` you can use with `videoStatus()` to poll for completion.
-
 ```php
-$response = $client->video('Ocean waves at sunset');
+$response = $client->video([
+    'prompt' => 'Short cinematic scene',
+    'model' => 'bytedance/seedance-1.0-lite',
+    'frame_images' => [
+        [
+            'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1200',
+            'frame' => 0,
+        ],
+    ],
+]);
 
-$jobId = $response['id'] ?? null;
-$status = $response['status'] ?? null;  // e.g. 'in_progress', 'queued'
-
-echo "Job ID: $jobId, status: $status\n";
-```
-
-With model and options:
-
-```php
-$response = $client->video(
-    'Test',
-    'bytedance/seedance-1.0-lite',
-    [
-        'seed' => 13,
-        'seconds' => '5',
-        'width' => 1440,
-        'height' => 1440,
-    ]
-);
-
-$jobId = $response['id'];
-// Use $jobId with videoStatus() to check progress and get the video URL
+$id = $response['id'] ?? null;
 ```
 
 ---
 
-## Get video status
+## Transcription (upload + poll)
 
-Use the job `id` returned from `video()` to fetch status and outputs (e.g. `video_url` when completed).
+Submit a local file (`POST /transcribe-recorded`):
 
 ```php
-$jobId = '019c65b5-b577-7963-84cd-0303456ecdf5';  // from video() response
+$response = $client->transcribeFile('/path/to/recording.mp3', [
+    'speech_models' => ['universal-2'],
+]);
 
-$status = $client->videoStatus($jobId);
+$transcriptId = $response['id'] ?? null;
+```
 
-echo "Status: " . ($status['status'] ?? 'unknown') . "\n";
+Poll status or result (`GET /transcribe-recorded/{id}`):
 
-if (isset($status['outputs']['video_url'])) {
-    echo "Video URL: " . $status['outputs']['video_url'] . "\n";
+```php
+$status = $client->getTranscribeRecorded($transcriptId, [
+    // optional query params, e.g. test flags if supported
+]);
+
+echo $status['status'] ?? 'unknown';
+```
+
+---
+
+## Tools – background removal + download result
+
+```php
+$result = $client->toolsGeneralBackgroundRemoval(
+    ['return_form' => 'mask'],
+    '/path/to/input.png'
+);
+
+// Typical shape includes data.image_url (absolute URL with /tools-result/...)
+$imageUrl = $result['data']['image_url'] ?? null;
+
+$path = parse_url((string) $imageUrl, PHP_URL_PATH);
+$prefix = '/tools-result/';
+$relative = ltrim(substr((string) $path, strpos((string) $path, $prefix) + strlen($prefix)), '/');
+
+$bytes = $client->getToolsResult($relative);
+file_put_contents('/tmp/mask.png', $bytes);
+```
+
+---
+
+## Tools – try-on (async) + query task
+
+```php
+$tryOn = $client->toolsPortraitTryOnClothes(
+    [
+        'task_type' => 'async',
+        'resolution' => '-1',
+        'restore_face' => 'true',
+    ],
+    [
+        'person_image' => '/path/to/person.png',
+        'top_garment' => '/path/to/top.png',
+        'bottom_garment' => '/path/to/bottom.png',
+    ]
+);
+
+$taskId = (string) ($tryOn['task_id'] ?? '');
+
+$query = $client->toolsQueryAsyncTaskResult($taskId);
+echo $query['status'] ?? json_encode($query);
+```
+
+Use the `task_id` returned from a successful async try-on submission when polling.
+
+---
+
+## Error handling
+
+```php
+use RuntimeException;
+
+try {
+    $out = $client->chat(['messages' => [['role' => 'user', 'content' => 'Hi']]]);
+} catch (RuntimeException $e) {
+    // HTTP errors include status and body in the message
+    fwrite(STDERR, $e->getMessage() . PHP_EOL);
 }
-```
-
-Polling until completed (example loop):
-
-```php
-$jobId = $response['id'];  // from video()
-
-do {
-    $status = $client->videoStatus($jobId);
-    $state = $status['status'] ?? 'unknown';
-    echo "Status: $state\n";
-
-    if ($state === 'completed' || $state === 'failed') {
-        break;
-    }
-
-    sleep(5);
-} while (true);
-
-if (($status['status'] ?? '') === 'completed' && isset($status['outputs']['video_url'])) {
-    echo "Video ready: " . $status['outputs']['video_url'] . "\n";
-}
-```
-
----
- 
-## Transcribe (recorded audio)
-
-### Transcribe from an audio URL
-
-```php
-$response = $client->transcribeRecordedFromUrl(
-    'https://example.com/audio.mp3',
-    [
-        'language_code' => 'en',
-        'speech_models' => ['universal-3-pro'],
-    ]
-);
-
-$jobId = $response['id'] ?? null;
-```
-
-### Transcribe from an uploaded file
-
-```php
-$response = $client->transcribeRecordedFromFile(
-    '/path/to/audio.mp3',
-    [
-        'speech_models' => ['universal-2'],
-    ]
-);
-
-$jobId = $response['id'] ?? null;
-```
-
-### Poll transcription status
-
-```php
-$status = $client->transcribeRecordedStatus($jobId, ['test' => true]);
-
-echo "Transcribe status: " . ($status['status'] ?? 'unknown') . "\n";
-```
-
----
-
-## Tools
-
-### Background removal
-
-```php
-$response = $client->backgroundRemoval(
-    '/path/to/input.jpg',
-    'mask',
-    ['test' => true]
-);
-```
-
-### Query async task result
-
-```php
-$response = $client->queryAsyncTaskResult('task-abc');
 ```

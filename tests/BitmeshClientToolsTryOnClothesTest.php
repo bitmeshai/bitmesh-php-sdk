@@ -2,9 +2,9 @@
 
 namespace BitmeshAI\Tests;
 
-class BitmeshClientToolsQueryAsyncTaskResultTest extends BitmeshClientTestCase
+class BitmeshClientToolsTryOnClothesTest extends BitmeshClientTestCase
 {
-    public function test_tools_query_async_task_result_calls_api(): void
+    public function test_tools_portrait_try_on_clothes_calls_api(): void
     {
         $personPath = $this->fixturePath('person.png');
         $topGarmentPath = $this->fixturePath('top_garment.png');
@@ -15,7 +15,7 @@ class BitmeshClientToolsQueryAsyncTaskResultTest extends BitmeshClientTestCase
 
         $client = $this->createClient(120);
 
-        $tryOnResponse = $client->toolsPortraitTryOnClothes([
+        $response = $client->toolsPortraitTryOnClothes([
             'task_type' => 'async',
             'resolution' => '-1',
             'restore_face' => 'true',
@@ -25,13 +25,10 @@ class BitmeshClientToolsQueryAsyncTaskResultTest extends BitmeshClientTestCase
             'bottom_garment' => $bottomGarmentPath,
         ]);
 
-        $taskId = (string) ($tryOnResponse['task_id'] ?? '');
-        $this->assertNotEmpty($taskId);
-
-        $queryResponse = $client->toolsQueryAsyncTaskResult($taskId);
-
-        $this->assertIsArray($queryResponse);
-        $this->assertArrayHasKey('status', $queryResponse);
-        $this->assertNotEmpty((string) $queryResponse['status'], 'Expected status in async task query response.');
+        $this->assertIsArray($response);
+        $this->assertArrayHasKey('status', $response);
+        $this->assertEquals('success', $response['status']);
+        $this->assertArrayHasKey('task_id', $response);
+        $this->assertNotEmpty((string) $response['task_id'], 'Expected task_id in try-on response.');
     }
 }

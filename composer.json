@@ -3,7 +3,7 @@
     "description": "PHP SDK for the Bitmesh AI API",
     "type": "library",
     "license": "MIT",
-    "keywords": ["bitmesh", "bitmesh-ai", "ai", "api", "sdk", "oauth", "chat", "llm"],
+    "keywords": ["bitmesh", "bitmesh-ai", "ai", "api", "sdk", "chat", "llm"],
     "authors": [
         {
             "name": "Shabab Haider Siddique",

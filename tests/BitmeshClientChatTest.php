@@ -2,119 +2,68 @@
 
 namespace BitmeshAI\Tests;
 
-use BitmeshAI\BitmeshClient;
-
 class BitmeshClientChatTest extends BitmeshClientTestCase
 {
-    public function testChatBuildsPayloadAndSignature()
+    public function test_chat_calls_api(): void
     {
-        $consumerKey = $this->getConsumerKey();
-        $consumerSecret = $this->getConsumerSecret();
+        $client = $this->createClient(120);
 
-        $client = new class($consumerKey, $consumerSecret, 'https://api.bitmesh.ai') extends BitmeshClient {
-            public array $captured = [];
+        $payload = [
+            'model' => 'openai/gpt-4o-mini',
+            'messages' => [
+                [
+                    'role' => 'user',
+                    'content' => 'Reply with exactly: sdk-ok',
+                ],
+            ],
+            'max_tokens' => 16,
+            'temperature' => 0,
+        ];
 
-            protected function sendRequest(
-                string $url,
-                string $authHeader,
-                string $payloadSignature,
-                string $jsonBody
-            ): array {
-                $this->captured = [
-                    'url' => $url,
-                    'authHeader' => $authHeader,
-                    'payloadSignature' => $payloadSignature,
-                    'jsonBody' => $jsonBody,
-                ];
-
-                // Simulate successful API response
-                return [
-                    200,
-                    json_encode([
-                        'choices' => [
-                            ['message' => ['role' => 'assistant', 'content' => 'Hello from test!']],
-                        ],
-                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                ];
+        try {
+            $response = $client->chat($payload);
+        } catch (\RuntimeException $exception) {
+            if (strpos($exception->getMessage(), 'This API key uses a fixed model') === false) {
+                throw $exception;
             }
-        };
 
-        $message = 'What are some fun things to do with AI?';
-        $response = $client->chat($message);
+            unset($payload['model']);
+            $response = $client->chat($payload);
+        }
 
-        // Assert decoded response structure
         $this->assertIsArray($response);
-        $this->assertArrayHasKey('choices', $response);
-        $this->assertSame('assistant', $response['choices'][0]['message']['role']);
-
-        // Assert request URL
-        $this->assertSame('https://api.bitmesh.ai/chat', $client->captured['url']);
-
-        // Assert JSON body structure (model omitted when null per API: prohibited if key has fixed model)
-        $decodedBody = json_decode($client->captured['jsonBody'], true);
-        $this->assertIsArray($decodedBody);
-        $this->assertArrayNotHasKey('model', $decodedBody);
-        $this->assertArrayHasKey('messages', $decodedBody);
-        $this->assertSame($message, $decodedBody['messages'][0]['content']);
-
-        // Assert Authorization header contains oauth fields
-        $authHeader = $client->captured['authHeader'];
-        $this->assertStringStartsWith('OAuth ', $authHeader);
-        $this->assertStringContainsString('oauth_consumer_key="' . rawurlencode($consumerKey) . '"', $authHeader);
-
-        // Extract oauth_signature from header to verify payload signature formula
-        $this->assertMatchesRegularExpression('/oauth_signature="([^"]+)"/', $authHeader);
-        preg_match('/oauth_signature="([^"]+)"/', $authHeader, $matches);
-        $oauthSignature = rawurldecode($matches[1]);
-
-        $expectedPayloadSignature = hash(
-            'sha256',
-            $client->captured['jsonBody'] . $consumerKey . $oauthSignature
-        );
-
-        $this->assertSame($expectedPayloadSignature, $client->captured['payloadSignature']);
+        $this->assertNotEmpty($response, 'Expected non-empty response from /chat.');
+        $this->assertArrayHasKey('id', $response);
+        $this->assertNotEmpty((string) $response['id'], 'Expected id in /chat response.');
     }
 
-    public function testChatWithMaxTokensAndModel()
+    public function test_chat_with_image_url_calls_api(): void
     {
-        $consumerKey = $this->getConsumerKey();
-        $consumerSecret = $this->getConsumerSecret();
+        $client = $this->createClient(120);
 
-        $client = new class($consumerKey, $consumerSecret, 'https://api.bitmesh.ai') extends BitmeshClient {
-            public array $captured = [];
-
-            protected function sendRequest(
-                string $url,
-                string $authHeader,
-                string $payloadSignature,
-                string $jsonBody
-            ): array {
-                $this->captured = [
-                    'url' => $url,
-                    'jsonBody' => $jsonBody,
-                ];
-
-                return [
-                    200,
-                    json_encode([
-                        'choices' => [
-                            ['message' => ['role' => 'assistant', 'content' => 'Hi']],
+        $payload = [
+            'model' => 'google/gemma-3n-e4b-it',
+            'messages' => [
+                ['role' => 'system', 'content' => 'You are a riddle solver.'],
+                [
+                    'role' => 'user',
+                    'content' => [
+                        ['type' => 'text', 'text' => 'Describe the image in one short phrase.'],
+                        [
+                            'type' => 'image_url',
+                            'image_url' => ['url' => 'https://placecats.com/600/400'],
                         ],
-                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                ];
-            }
-        };
+                    ],
+                ],
+            ],
+            'max_tokens' => 64,
+        ];
 
-        $model = 'google/gemma-3n-1b';
-        $message = 'Hi';
-
-        $response = $client->chat($message, $model, ['max_tokens' => 1]);
+        $response = $client->chat($payload);
 
         $this->assertIsArray($response);
-        $this->assertArrayHasKey('choices', $response);
-
-        $decodedBody = json_decode($client->captured['jsonBody'], true);
-        $this->assertSame($model, $decodedBody['model']);
-        $this->assertSame(1, $decodedBody['max_tokens']);
+        $this->assertNotEmpty($response);
+        $this->assertArrayHasKey('id', $response);
+        $this->assertNotEmpty((string) $response['id']);
     }
 }

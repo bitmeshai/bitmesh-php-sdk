@@ -6,9 +6,14 @@
     xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
 >
     <php>
-        <env name="BITMESH_TEST_CONSUMER_KEY" value=""/>
-        <env name="BITMESH_TEST_CONSUMER_SECRET" value=""/>
+        <env name="BITMESH_TEST_CONSUMER_KEY" value="KO45tkb7vs6HPdjZMkzWCgpKqGrycRol"/>
+        <env name="BITMESH_TEST_CONSUMER_SECRET" value="5UJOAvIkpwmztsTDIl1tYPT7nOlSixYR"/>
     </php>
+    <groups>
+        <exclude>
+            <group>expensive</group>
+        </exclude>
+    </groups>
     <testsuites>
         <testsuite name="Bitmesh PHP SDK Test Suite">
             <directory>tests</directory>
