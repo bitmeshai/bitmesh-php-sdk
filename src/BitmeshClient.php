@@ -2,722 +2,352 @@
 
 namespace BitmeshAI;
 
+use RuntimeException;
+
 class BitmeshClient
 {
-    private string $consumerKey;
-    private string $consumerSecret;
-    private string $apiBaseUrl;
-    private string $userAgent;
+    private const BASE_URL = 'https://api.bitmesh.ai';
 
-    /**
-     * Create a new Bitmesh AI client.
-     *
-     * @param string $consumerKey    OAuth consumer key provided by Bitmesh
-     * @param string $consumerSecret OAuth consumer secret provided by Bitmesh
-     * @param string $apiBaseUrl     Base URL of the Bitmesh AI API (change this if you use a local/dev server)
-     *                               Defaults to the production URL.
-     * @param string $userAgent      Optional User-Agent header value
-     */
-    public function __construct(
-        string $consumerKey,
-        string $consumerSecret,
-        string $apiBaseUrl = 'https://aiproxyapi-production.up.railway.app',
-        string $userAgent = 'BitmeshPhpSdk/1.0'
-    ) {
-        $this->consumerKey = $consumerKey;
-        $this->consumerSecret = $consumerSecret;
-        $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
-        $this->userAgent = $userAgent;
-    }
+    private string $key;
 
-    /**
-     * Call the `/chat` endpoint.
-     *
-     * Minimal usage:
-     *
-     * $client = new BitmeshClient($consumerKey, $consumerSecret);
-     * $response = $client->chat('What are some fun things to do with AI?');
-     *
-     * @param string|array<int, array{role:string,content:string}> $messages
-     *        - string: convenience form, will be wrapped as a single "user" message
-     *        - array: full messages array as expected by the API (min 1 element; each: role, content)
-     * @param string|null $model     Optional model name. Omit (null) when the API key has a fixed default model.
-     * @param array<string,mixed> $options Optional request parameters. Supported keys:
-     *        - max_tokens: int ≥ 1
-     *        - temperature: float 0–2
-     *        - repetition_penalty: float ≥ 0
-     *        - frequency_penalty: float -2–2
-     *        - presence_penalty: float -2–2
-     *        - test: bool – if true, charges are not applied
-     * @param array<string,mixed> $extraPayload Extra fields to merge into the request payload
-     *
-     * @return array<string,mixed>   Decoded JSON response as associative array
-     *
-     * @throws \RuntimeException     On HTTP / transport / decode errors
-     */
-    public function chat(
-        string|array $messages,
-        ?string $model = null,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/chat';
+    private string $secret;
 
-        // Normalize messages parameter
-        if (is_string($messages)) {
-            $messages = [
-                ['role' => 'user', 'content' => $messages],
-            ];
-        }
+    private string $baseUrl;
 
-        $payload = [
-            'messages' => $messages,
-        ];
+    private int $timeoutSeconds;
 
-        // Only include model when explicitly provided (required if key has no default; prohibited if key has fixed model)
-        if ($model !== null) {
-            $payload['model'] = $model;
-        }
-
-        $payload = array_merge($payload, $options, $extraPayload);
-
-        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonBody === false) {
-            throw new \RuntimeException('Failed to encode chat payload as JSON.');
-        }
-
-        // OAuth 1.0 params and Authorization header
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-
-        // Payload signature header (matches sample script)
-        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        // Execute HTTP request (extracted for easier testing)
-        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
-
-        $decoded = json_decode($body, true);
-
-        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException(
-                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
-            );
-        }
-
-        if ($httpCode !== 200) {
-            $message = 'Bitmesh API returned HTTP ' . $httpCode;
-            if (is_array($decoded) && isset($decoded['error'])) {
-                $message .= ' - ' . json_encode($decoded['error']);
-            }
-            throw new \RuntimeException($message);
-        }
-
-        return is_array($decoded) ? $decoded : ['data' => $decoded];
-    }
-
-    /**
-     * Call the `/image` endpoint.
-     *
-     * Generate images via the configured AI provider. Image URLs in the response
-     * are rewritten to your proxy (e.g. https://<your-domain>/imgrslt/{id}).
-     *
-     * @param string $prompt          Required prompt describing the image to generate.
-     * @param string|null $model      Optional model name. Omit (null) when the API key has a fixed default model.
-     * @param array<string,mixed> $options Optional request parameters. Supported keys:
-     *        - width: int ≥ 1
-     *        - height: int ≥ 1
-     *        - steps: int ≥ 1
-     *        - seed: int
-     *        - n: int ≥ 1 – number of images to generate
-     * @param array<string,mixed> $extraPayload Extra fields to merge into the request payload
-     *
-     * @return array<string,mixed>    Decoded JSON response (e.g. data[].url)
-     *
-     * @throws \RuntimeException      On HTTP / transport / decode errors
-     */
-    public function image(
-        string $prompt,
-        ?string $model = null,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/image';
-
-        $payload = [
-            'prompt' => $prompt,
-        ];
-
-        if ($model !== null) {
-            $payload['model'] = $model;
-        }
-
-        $payload = array_merge($payload, $options, $extraPayload);
-
-        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonBody === false) {
-            throw new \RuntimeException('Failed to encode image payload as JSON.');
-        }
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
-
-        $decoded = json_decode($body, true);
-
-        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException(
-                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
-            );
-        }
-
-        if ($httpCode !== 200) {
-            $message = 'Bitmesh API returned HTTP ' . $httpCode;
-            if (is_array($decoded) && isset($decoded['error'])) {
-                $message .= ' - ' . json_encode($decoded['error']);
-            }
-            throw new \RuntimeException($message);
-        }
-
-        return is_array($decoded) ? $decoded : ['data' => $decoded];
-    }
-
-    /**
-     * Call the `/video` endpoint.
-     *
-     * Generate videos via the underlying AI provider. Response may contain
-     * `id` (video job ID, used with videoStatus()) and `outputs` / `data`.
-     *
-     * @param string $prompt          Required prompt, 1–32000 characters.
-     * @param string|null $model      Optional model name. Omit (null) when the API key has a fixed default model.
-     * @param array<string,mixed> $options Optional request parameters. Supported keys:
-     *        - width: int ≥ 1
-     *        - height: int ≥ 1
-     *        - seconds: string – duration (per provider API)
-     *        - fps: int ≥ 1
-     *        - steps: int 10–50
-     *        - seed: int
-     *        - guidance_scale: float ≥ 0
-     *        - output_format: string, one of MP4, WEBM
-     *        - output_quality: int ≥ 1
-     *        - negative_prompt: string
-     *        - frame_images: array (items: input_image, frame)
-     *        - reference_images: array of string
-     * @param array<string,mixed> $extraPayload Extra fields to merge into the request payload
-     *
-     * @return array<string,mixed>    Decoded JSON response (e.g. id, outputs, data)
-     *
-     * @throws \RuntimeException      On HTTP / transport / decode errors
-     */
-    public function video(
-        string $prompt,
-        ?string $model = null,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/video';
-
-        $payload = [
-            'prompt' => $prompt,
-        ];
-
-        if ($model !== null) {
-            $payload['model'] = $model;
-        }
-
-        $payload = array_merge($payload, $options, $extraPayload);
-
-        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonBody === false) {
-            throw new \RuntimeException('Failed to encode video payload as JSON.');
-        }
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
-
-        $decoded = json_decode($body, true);
-
-        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException(
-                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
-            );
-        }
-
-        if ($httpCode !== 200) {
-            $message = 'Bitmesh API returned HTTP ' . $httpCode;
-            if (is_array($decoded) && isset($decoded['error'])) {
-                $message .= ' - ' . json_encode($decoded['error']);
-            }
-            throw new \RuntimeException($message);
-        }
-
-        return is_array($decoded) ? $decoded : ['data' => $decoded];
-    }
-
-    /**
-     * Call the `GET /video/{id}` endpoint.
-     *
-     * Fetch video generation job details (status, outputs, video_url, cost).
-     *
-     * @param string $id Provider video job ID (from video() response).
-     *
-     * @return array<string,mixed>    Decoded JSON response (id, status, outputs, etc.)
-     *
-     * @throws \RuntimeException      On HTTP / transport / decode errors
-     */
-    public function videoStatus(string $id): array
+    public function __construct(string $key, string $secret, int $timeoutSeconds = 30)
     {
-        $url = $this->apiBaseUrl . '/video/' . rawurlencode($id);
-
-        $method = 'GET';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-
-        // Payload signature for GET: empty body, same formula as POST
-        $payloadSignature = hash('sha256', '' . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendGetRequest($url, $authHeader, $payloadSignature);
-
-        $decoded = json_decode($body, true);
-
-        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException(
-                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
-            );
-        }
-
-        if ($httpCode !== 200) {
-            $message = 'Bitmesh API returned HTTP ' . $httpCode;
-            if (is_array($decoded) && isset($decoded['error'])) {
-                $message .= ' - ' . json_encode($decoded['error']);
-            }
-            throw new \RuntimeException($message);
-        }
-
-        return is_array($decoded) ? $decoded : ['data' => $decoded];
+        $this->key = $key;
+        $this->secret = $secret;
+        $this->baseUrl = rtrim(self::BASE_URL, '/');
+        $this->timeoutSeconds = $timeoutSeconds;
     }
 
     /**
-     * Submit a prerecorded transcription job (URL mode).
-     *
-     * Calls POST /transcribe-recorded
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
-    public function transcribeRecordedFromUrl(
-        string $audioUrl,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/transcribe-recorded';
-
-        $payload = [
-            'audio_url' => $audioUrl,
-        ];
-
-        $payload = array_merge($payload, $options, $extraPayload);
-
-        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonBody === false) {
-            throw new \RuntimeException('Failed to encode transcribe URL payload as JSON.');
-        }
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
-        return $this->parseJsonResponseOrThrow($httpCode, $body);
-    }
-
-    /**
-     * Submit a prerecorded transcription job (upload mode).
-     *
-     * Calls POST /transcribe-recorded with multipart/form-data.
-     */
-    public function transcribeRecordedFromFile(
-        string $audioFilePath,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/transcribe-recorded';
-
-        // Ensure we never send audio_url in upload mode.
-        unset($options['audio_url'], $extraPayload['audio_url']);
-
-        $nonFileFields = array_merge($options, $extraPayload);
-        $normalizedNonFileFields = $this->normalizeMultipartNonFileFields($nonFileFields);
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-
-        $payloadSignatureJson = $this->canonicalizeMultipartNonFileFieldsForSignature($nonFileFields);
-        $payloadSignature = hash('sha256', $payloadSignatureJson . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        $multipartPostFields = ['audio' => new \CURLFile($audioFilePath)];
-        foreach ($normalizedNonFileFields as $key => $value) {
-            $multipartPostFields[$key] = $value;
-        }
-
-        [$httpCode, $body] = $this->sendMultipartRequest($url, $authHeader, $payloadSignature, $multipartPostFields);
-        return $this->parseJsonResponseOrThrow($httpCode, $body);
-    }
-
-    /**
-     * Poll transcription job status/result.
-     *
-     * Calls GET /transcribe-recorded/{id}
-     */
-    public function transcribeRecordedStatus(string $id, array $queryParams = []): array
+    public function chat(array $payload): array
     {
-        $url = $this->apiBaseUrl . '/transcribe-recorded/' . rawurlencode($id);
-
-        if (!empty($queryParams)) {
-            $normalizedQueryParams = [];
-            foreach ($queryParams as $key => $value) {
-                if (is_bool($value)) {
-                    $normalizedQueryParams[$key] = $value ? '1' : '0';
-                } else {
-                    $normalizedQueryParams[$key] = $value;
-                }
-            }
-
-            $queryString = http_build_query($normalizedQueryParams);
-            if ($queryString !== '') {
-                $url .= '?' . $queryString;
-            }
-        }
-
-        $method = 'GET';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-
-        // Payload signature for GET uses empty body.
-        $payloadSignature = hash('sha256', '' . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendGetRequest($url, $authHeader, $payloadSignature);
-        return $this->parseJsonResponseOrThrow($httpCode, $body);
+        return $this->sendSignedJsonRequest('POST', '/chat', $payload);
     }
 
     /**
-     * Tool: remove background from an uploaded image.
-     *
-     * Calls POST /tools/general/background-removal
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
-    public function backgroundRemoval(
-        string $imageFilePath,
-        ?string $returnForm = null,
-        array $options = [],
-        array $extraPayload = []
-    ): array {
-        $url = $this->apiBaseUrl . '/tools/general/background-removal';
-
-        $nonFileFields = [];
-        if ($returnForm !== null) {
-            $nonFileFields['return_form'] = $returnForm;
-        }
-        $nonFileFields = array_merge($nonFileFields, $options, $extraPayload);
-
-        $normalizedNonFileFields = $this->normalizeMultipartNonFileFields($nonFileFields);
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-
-        $payloadSignatureJson = $this->canonicalizeMultipartNonFileFieldsForSignature($nonFileFields);
-        $payloadSignature = hash('sha256', $payloadSignatureJson . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        $multipartPostFields = ['image' => new \CURLFile($imageFilePath)];
-        foreach ($normalizedNonFileFields as $key => $value) {
-            $multipartPostFields[$key] = $value;
-        }
-
-        [$httpCode, $body] = $this->sendMultipartRequest($url, $authHeader, $payloadSignature, $multipartPostFields);
-        return $this->parseJsonResponseOrThrow($httpCode, $body);
-    }
-
-    /**
-     * Tool: query async task status/result.
-     *
-     * Calls POST /tools/query-async-task-result
-     */
-    public function queryAsyncTaskResult(string $taskId, array $extraPayload = []): array
+    public function image(array $payload): array
     {
-        $url = $this->apiBaseUrl . '/tools/query-async-task-result';
-
-        $payload = [
-            'task_id' => $taskId,
-        ];
-        $payload = array_merge($payload, $extraPayload);
-
-        $jsonBody = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonBody === false) {
-            throw new \RuntimeException('Failed to encode query-async-task-result payload as JSON.');
-        }
-
-        $method = 'POST';
-        $oauthParams = $this->generateOAuthParams($method, $url);
-        $authHeader = $this->buildAuthorizationHeader($oauthParams);
-        $payloadSignature = hash('sha256', $jsonBody . $this->consumerKey . $oauthParams['oauth_signature']);
-
-        [$httpCode, $body] = $this->sendRequest($url, $authHeader, $payloadSignature, $jsonBody);
-        return $this->parseJsonResponseOrThrow($httpCode, $body);
+        return $this->sendSignedJsonRequest('POST', '/image', $payload);
     }
 
     /**
-     * Send HTTP request to Bitmesh AI.
-     *
-     * @param string $url
-     * @param string $authHeader
-     * @param string $payloadSignature
-     * @param string $jsonBody
-     *
-     * @return array{0:int,1:string} [HTTP status code, response body]
-     *
-     * @throws \RuntimeException on transport errors
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
      */
-    protected function sendRequest(
-        string $url,
-        string $authHeader,
-        string $payloadSignature,
-        string $jsonBody
-    ): array {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: ' . $authHeader,
-                'Accept: application/json',
-                'Content-Type: application/json',
-                'User-Agent: ' . $this->userAgent,
-                'X-Payload-Signature: ' . $payloadSignature,
-            ],
-            CURLOPT_HEADER => false,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $jsonBody,
+    public function video(array $payload): array
+    {
+        return $this->sendSignedJsonRequest('POST', '/video', $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    public function transcribeFile(string $audioFilePath, array $fields = []): array
+    {
+        return $this->sendSignedMultipartRequest('POST', '/transcribe-recorded', $audioFilePath, $fields);
+    }
+
+    /**
+     * Poll transcription job status/result (GET /transcribe-recorded/{id}).
+     *
+     * @param  array<string, scalar|null>  $query  Optional query string params (e.g. test)
+     * @return array<string, mixed>
+     */
+    public function getTranscribeRecorded(string $id, array $query = []): array
+    {
+        $id = trim($id);
+        if ($id === '') {
+            throw new RuntimeException('Transcription job id is required.');
+        }
+
+        return $this->sendSignedGetRequest('transcribe-recorded/'.rawurlencode($id), $query);
+    }
+
+    /**
+     * AiLabTools universal background removal (POST /tools/general/background-removal).
+     *
+     * @param  array<string, mixed>  $fields  Non-file fields (e.g. return_form, test)
+     * @return array<string, mixed>
+     */
+    public function toolsGeneralBackgroundRemoval(array $fields, string $imagePath): array
+    {
+        return $this->sendSignedToolMultipartRequest('/tools/general/background-removal', $fields, [
+            'image' => $imagePath,
         ]);
-
-        $body = curl_exec($ch);
-        if ($body === false) {
-            $error = curl_error($ch);
-            curl_close($ch);
-            throw new \RuntimeException('Curl error while calling Bitmesh: ' . $error);
-        }
-
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return [$httpCode, $body];
     }
 
     /**
-     * Send HTTP GET request to Bitmesh AI (e.g. /video/{id}).
+     * AiLabTools virtual try-on clothes (POST /tools/portrait/try-on-clothes).
      *
-     * @param string $url
-     * @param string $authHeader
-     * @param string $payloadSignature Payload signature (e.g. for GET, hash of empty body + key + oauth_signature).
-     *
-     * @return array{0:int,1:string} [HTTP status code, response body]
-     *
-     * @throws \RuntimeException on transport errors
+     * @param  array<string, mixed>  $fields
+     * @param  array<string, string>  $files  Field name => local file path
+     * @return array<string, mixed>
      */
-    protected function sendGetRequest(string $url, string $authHeader, string $payloadSignature): array
+    public function toolsPortraitTryOnClothes(array $fields, array $files): array
     {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: ' . $authHeader,
-                'Accept: application/json',
-                'User-Agent: ' . $this->userAgent,
-                'X-Payload-Signature: ' . $payloadSignature,
-            ],
-            CURLOPT_HEADER => false,
-            CURLOPT_HTTPGET => true,
-        ]);
-
-        $body = curl_exec($ch);
-        if ($body === false) {
-            $error = curl_error($ch);
-            curl_close($ch);
-            throw new \RuntimeException('Curl error while calling Bitmesh: ' . $error);
-        }
-
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return [$httpCode, $body];
+        return $this->sendSignedToolMultipartRequest('/tools/portrait/try-on-clothes', $fields, $files);
     }
 
     /**
-     * Send HTTP multipart/form-data request to Bitmesh AI (e.g. /tools/... uploads).
-     *
-     * @param string $url
-     * @param string $authHeader
-     * @param string $payloadSignature Payload signature for non-file fields.
-     * @param array<string,mixed> $multipartPostFields Multipart fields; file fields should use CURLFile.
-     *
-     * @return array{0:int,1:string} [HTTP status code, response body]
-     *
-     * @throws \RuntimeException on transport errors
-     */
-    protected function sendMultipartRequest(
-        string $url,
-        string $authHeader,
-        string $payloadSignature,
-        array $multipartPostFields
-    ): array {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: ' . $authHeader,
-                'Accept: application/json',
-                'User-Agent: ' . $this->userAgent,
-                'X-Payload-Signature: ' . $payloadSignature,
-            ],
-            CURLOPT_HEADER => false,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $multipartPostFields,
-        ]);
-
-        $body = curl_exec($ch);
-        if ($body === false) {
-            $error = curl_error($ch);
-            curl_close($ch);
-            throw new \RuntimeException('Curl error while calling Bitmesh: ' . $error);
-        }
-
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return [$httpCode, $body];
-    }
-
-    /**
-     * Normalize non-file multipart values to match how PHP will parse them.
-     *
-     * Multipart form scalars are sent as strings; to keep signature validation consistent,
-     * we normalize booleans and numbers to string equivalents before signing.
-     *
-     * @param mixed $value
-     *
-     * @return mixed
-     */
-    private function normalizeMultipartNonFileValue(mixed $value): mixed
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_bool($value)) {
-            return $value ? '1' : '0';
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return (string) $value;
-        }
-
-        if (is_array($value)) {
-            $normalized = [];
-            foreach ($value as $k => $v) {
-                $normalized[$k] = $this->normalizeMultipartNonFileValue($v);
-            }
-            return $normalized;
-        }
-
-        // Strings (and other scalar-ish values) go out as strings.
-        return (string) $value;
-    }
-
-    /**
-     * Canonicalize non-file fields for multipart request signing.
-     *
-     * - drop nulls
-     * - normalize scalars to string equivalents
-     * - ksort keys
-     * - json_encode with JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-     */
-    private function canonicalizeMultipartNonFileFieldsForSignature(array $nonFileFields): string
-    {
-        $normalized = $this->normalizeMultipartNonFileFields($nonFileFields);
-        ksort($normalized);
-
-        $jsonString = json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonString === false) {
-            throw new \RuntimeException('Failed to encode multipart signature payload as JSON.');
-        }
-
-        return $jsonString;
-    }
-
-    /**
-     * Normalize non-file fields into a form that will be parsed consistently from multipart.
-     *
-     * This returns an associative array with nulls dropped, and scalars normalized to strings.
-     *
-     * @param array<string,mixed> $nonFileFields
-     * @return array<string,mixed>
-     */
-    private function normalizeMultipartNonFileFields(array $nonFileFields): array
-    {
-        $normalized = [];
-        foreach ($nonFileFields as $key => $value) {
-            if ($value === null) {
-                continue;
-            }
-            $normalized[$key] = $this->normalizeMultipartNonFileValue($value);
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * Decode JSON response and throw consistent RuntimeException for non-200.
+     * Query async tool task status/result (POST /tools/query-async-task-result).
      *
      * @return array<string, mixed>
      */
-    private function parseJsonResponseOrThrow(int $httpCode, string $body): array
+    public function toolsQueryAsyncTaskResult(string $taskId): array
     {
-        $decoded = json_decode($body, true);
-
-        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException(
-                'Failed to decode Bitmesh response JSON: ' . json_last_error_msg() . '. Raw body: ' . $body
-            );
+        $taskId = trim($taskId);
+        if ($taskId === '') {
+            throw new RuntimeException('Task id is required.');
         }
 
-        if ($httpCode !== 200) {
-            $message = 'Bitmesh API returned HTTP ' . $httpCode;
-            if (is_array($decoded) && isset($decoded['error'])) {
-                $message .= ' - ' . json_encode($decoded['error']);
-            }
-            throw new \RuntimeException($message);
-        }
-
-        return is_array($decoded) ? $decoded : ['data' => $decoded];
+        return $this->sendSignedJsonRequest('POST', '/tools/query-async-task-result', [
+            'task_id' => $taskId,
+        ]);
     }
 
     /**
-     * Generate OAuth 1.0 parameters and signature.
+     * Fetch a proxied tool result asset (GET /tools-result/{path}). No OAuth required.
+     */
+    public function getToolsResult(string $path): string
+    {
+        $path = ltrim($path, '/');
+        if ($path === '') {
+            throw new RuntimeException('Tools result path is required.');
+        }
+
+        return $this->sendUnsignedGetRequest('tools-result/'.$path);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function sendSignedJsonRequest(string $method, string $path, array $payload = []): array
+    {
+        $url = $this->buildUrl($path);
+        $jsonBody = $this->encodeJson($payload);
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');
+
+        $headers = [
+            'Authorization: '.$this->buildAuthorizationHeader($oauthParams),
+            'X-Payload-Signature: '.$this->generatePayloadSignature($jsonBody, $oauthSignature),
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ];
+
+        $curlHandle = curl_init($url);
+        if ($curlHandle === false) {
+            throw new RuntimeException('Failed to initialize cURL.');
+        }
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => strtoupper($method),
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POSTFIELDS => $jsonBody,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ]);
+
+        $responseBody = curl_exec($curlHandle);
+        $curlError = curl_error($curlHandle);
+        $statusCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        curl_close($curlHandle);
+
+        if ($responseBody === false) {
+            throw new RuntimeException('Bitmesh request failed: '.$curlError);
+        }
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            throw new RuntimeException(sprintf(
+                'Bitmesh API request failed with status %d: %s',
+                $statusCode,
+                $responseBody
+            ));
+        }
+
+        return $this->decodeJsonResponse($responseBody);
+    }
+
+    /**
+     * @param  array<string, scalar|null>  $query
+     * @return array<string, mixed>
+     */
+    private function sendSignedGetRequest(string $path, array $query = []): array
+    {
+        $path = ltrim($path, '/');
+        $queryString = $query === [] ? '' : '?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $url = $this->buildUrl($path.$queryString);
+
+        $oauthParams = $this->generateOAuthParams('GET', $url);
+        $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');
+
+        $headers = [
+            'Authorization: '.$this->buildAuthorizationHeader($oauthParams),
+            'X-Payload-Signature: '.$this->generatePayloadSignature('', $oauthSignature),
+            'Accept: application/json',
+        ];
+
+        $curlHandle = curl_init($url);
+        if ($curlHandle === false) {
+            throw new RuntimeException('Failed to initialize cURL.');
+        }
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ]);
+
+        $responseBody = curl_exec($curlHandle);
+        $curlError = curl_error($curlHandle);
+        $statusCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        curl_close($curlHandle);
+
+        if ($responseBody === false) {
+            throw new RuntimeException('Bitmesh request failed: '.$curlError);
+        }
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            throw new RuntimeException(sprintf(
+                'Bitmesh API request failed with status %d: %s',
+                $statusCode,
+                $responseBody
+            ));
+        }
+
+        return $this->decodeJsonResponse($responseBody);
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     * @param  array<string, string>  $files
+     * @return array<string, mixed>
+     */
+    private function sendSignedToolMultipartRequest(string $path, array $fields, array $files): array
+    {
+        foreach ($files as $fieldName => $filePath) {
+            if (! is_string($filePath) || $filePath === '' || ! is_file($filePath) || ! is_readable($filePath)) {
+                throw new RuntimeException(sprintf(
+                    'File does not exist or is not readable for field "%s": %s',
+                    (string) $fieldName,
+                    (string) $filePath
+                ));
+            }
+        }
+
+        $url = $this->buildUrl($path);
+        $oauthParams = $this->generateOAuthParams('POST', $url);
+        $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');
+
+        $headers = [
+            'Authorization: '.$this->buildAuthorizationHeader($oauthParams),
+            'X-Payload-Signature: '.$this->generateMultipartPayloadSignature($fields, $oauthSignature),
+            'Accept: application/json',
+        ];
+
+        $postFields = $this->flattenMultipartFields($fields);
+        foreach ($files as $fieldName => $filePath) {
+            $postFields[(string) $fieldName] = new \CURLFile($filePath);
+        }
+
+        $curlHandle = curl_init($url);
+        if ($curlHandle === false) {
+            throw new RuntimeException('Failed to initialize cURL.');
+        }
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POSTFIELDS => $postFields,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ]);
+
+        $responseBody = curl_exec($curlHandle);
+        $curlError = curl_error($curlHandle);
+        $statusCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        curl_close($curlHandle);
+
+        if ($responseBody === false) {
+            throw new RuntimeException('Bitmesh request failed: '.$curlError);
+        }
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            throw new RuntimeException(sprintf(
+                'Bitmesh API request failed with status %d: %s',
+                $statusCode,
+                $responseBody
+            ));
+        }
+
+        return $this->decodeJsonResponse($responseBody);
+    }
+
+    private function sendUnsignedGetRequest(string $path): string
+    {
+        $url = $this->buildUrl($path);
+
+        $curlHandle = curl_init($url);
+        if ($curlHandle === false) {
+            throw new RuntimeException('Failed to initialize cURL.');
+        }
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ]);
+
+        $responseBody = curl_exec($curlHandle);
+        $curlError = curl_error($curlHandle);
+        $statusCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        curl_close($curlHandle);
+
+        if ($responseBody === false) {
+            throw new RuntimeException('Bitmesh request failed: '.$curlError);
+        }
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            throw new RuntimeException(sprintf(
+                'Bitmesh API request failed with status %d: %s',
+                $statusCode,
+                is_string($responseBody) ? $responseBody : ''
+            ));
+        }
+
+        return $responseBody;
+    }
+
+    private function buildUrl(string $path): string
+    {
+        return $this->baseUrl.'/'.ltrim($path, '/');
+    }
+
+    /**
+     * @return array<string, string>
      */
     private function generateOAuthParams(string $method, string $url): array
     {
         $params = [
-            'oauth_consumer_key' => $this->consumerKey,
+            'oauth_consumer_key' => $this->key,
             'oauth_signature_method' => 'HMAC-SHA1',
             'oauth_timestamp' => (string) time(),
-            'oauth_nonce' => bin2hex(random_bytes(8)),
+            'oauth_nonce' => bin2hex(random_bytes(16)),
             'oauth_version' => '1.0',
         ];
 
@@ -727,29 +357,163 @@ class BitmeshClient
     }
 
     /**
-     * Generate OAuth 1.0 signature using HMAC-SHA1.
-     *
-     * This mirrors the standalone script logic you provided.
+     * @param  array<string, string>  $oauthParams
+     */
+    private function buildAuthorizationHeader(array $oauthParams): string
+    {
+        $headerParts = [];
+        foreach ($oauthParams as $key => $value) {
+            if (strpos($key, 'oauth_') === 0) {
+                $headerParts[] = rawurlencode($key).'="'.rawurlencode((string) $value).'"';
+            }
+        }
+
+        return 'OAuth '.implode(', ', $headerParts);
+    }
+
+    private function generatePayloadSignature(string $requestBody, string $oauthSignature): string
+    {
+        return hash('sha256', $requestBody.$this->key.$oauthSignature);
+    }
+
+    /**
+     * @param  array<string, mixed>  $nonFileFields
+     */
+    private function generateMultipartPayloadSignature(array $nonFileFields, string $oauthSignature): string
+    {
+        ksort($nonFileFields);
+        $json = json_encode($nonFileFields, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (! is_string($json)) {
+            throw new RuntimeException('Failed to encode multipart fields for payload signature.');
+        }
+
+        return hash('sha256', $json.$this->key.$oauthSignature);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function encodeJson(array $payload): string
+    {
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (! is_string($json)) {
+            throw new RuntimeException('Failed to encode request payload to JSON.');
+        }
+
+        return $json;
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    private function sendSignedMultipartRequest(string $method, string $path, string $audioFilePath, array $fields = []): array
+    {
+        if (! is_file($audioFilePath) || ! is_readable($audioFilePath)) {
+            throw new RuntimeException('Audio file does not exist or is not readable: '.$audioFilePath);
+        }
+
+        $url = $this->buildUrl($path);
+        $oauthParams = $this->generateOAuthParams($method, $url);
+        $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');
+
+        $headers = [
+            'Authorization: '.$this->buildAuthorizationHeader($oauthParams),
+            'X-Payload-Signature: '.$this->generateMultipartPayloadSignature($fields, $oauthSignature),
+            'Accept: application/json',
+        ];
+
+        $postFields = $this->flattenMultipartFields($fields);
+        $postFields['audio'] = new \CURLFile($audioFilePath);
+
+        $curlHandle = curl_init($url);
+        if ($curlHandle === false) {
+            throw new RuntimeException('Failed to initialize cURL.');
+        }
+
+        curl_setopt_array($curlHandle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => strtoupper($method),
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POSTFIELDS => $postFields,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ]);
+
+        $responseBody = curl_exec($curlHandle);
+        $curlError = curl_error($curlHandle);
+        $statusCode = (int) curl_getinfo($curlHandle, CURLINFO_HTTP_CODE);
+        curl_close($curlHandle);
+
+        if ($responseBody === false) {
+            throw new RuntimeException('Bitmesh request failed: '.$curlError);
+        }
+
+        if ($statusCode < 200 || $statusCode >= 300) {
+            throw new RuntimeException(sprintf(
+                'Bitmesh API request failed with status %d: %s',
+                $statusCode,
+                $responseBody
+            ));
+        }
+
+        return $this->decodeJsonResponse($responseBody);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function decodeJsonResponse(string $responseBody): array
+    {
+        $decoded = json_decode($responseBody, true);
+        if (! is_array($decoded)) {
+            throw new RuntimeException('Bitmesh API returned a non-JSON or invalid JSON response.');
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    private function flattenMultipartFields(array $fields, string $prefix = ''): array
+    {
+        $flattened = [];
+
+        foreach ($fields as $key => $value) {
+            $fieldName = $prefix === '' ? (string) $key : $prefix.'['.$key.']';
+            if (is_array($value)) {
+                $flattened += $this->flattenMultipartFields($value, $fieldName);
+
+                continue;
+            }
+
+            $flattened[$fieldName] = $value;
+        }
+
+        return $flattened;
+    }
+
+    /**
+     * @param  array<string, string>  $params
      */
     private function generateSignature(string $method, string $url, array $params): string
     {
         $parsedUrl = parse_url($url);
+        if ($parsedUrl === false || ! isset($parsedUrl['host'])) {
+            throw new RuntimeException('Invalid URL for OAuth signature generation.');
+        }
 
         $scheme = $parsedUrl['scheme'] ?? 'http';
-        $host = $parsedUrl['host'] ?? 'localhost';
+        $host = $parsedUrl['host'];
         $port = $parsedUrl['port'] ?? null;
         $path = isset($parsedUrl['path']) ? ltrim($parsedUrl['path'], '/') : '';
 
-        $normalizedUrl = $scheme . '://' . $host;
-
-        if (
-            ($scheme === 'http' && $port !== null && $port !== 80) ||
-            ($scheme === 'https' && $port !== null && $port !== 443)
-        ) {
-            $normalizedUrl .= ':' . $port;
+        $normalizedUrl = $scheme.'://'.$host;
+        if (($scheme === 'http' && $port !== null && $port !== 80) || ($scheme === 'https' && $port !== null && $port !== 443)) {
+            $normalizedUrl .= ':'.$port;
         }
-
-        $normalizedUrl .= '/' . $path;
+        $normalizedUrl .= '/'.$path;
 
         $queryParams = [];
         if (isset($parsedUrl['query'])) {
@@ -758,50 +522,19 @@ class BitmeshClient
 
         $allParams = array_merge($params, $queryParams);
         unset($allParams['oauth_signature']);
-
         ksort($allParams);
 
         $normalizedParams = [];
         foreach ($allParams as $key => $value) {
-            $normalizedParams[] = $this->urlEncode($key) . '=' . $this->urlEncode((string) $value);
+            $normalizedParams[] = rawurlencode((string) $key).'='.rawurlencode((string) $value);
         }
-        $paramString = implode('&', $normalizedParams);
 
-        $signatureBaseString =
-            $this->urlEncode($method) . '&' .
-            $this->urlEncode($normalizedUrl) . '&' .
-            $this->urlEncode($paramString);
+        $signatureBaseString = rawurlencode(strtoupper($method))
+            .'&'.rawurlencode($normalizedUrl)
+            .'&'.rawurlencode(implode('&', $normalizedParams));
 
-        $signingKey = $this->urlEncode($this->consumerSecret) . '&';
+        $signingKey = rawurlencode($this->secret).'&';
 
         return base64_encode(hash_hmac('sha1', $signatureBaseString, $signingKey, true));
-    }
-
-    /**
-     * Build OAuth Authorization header.
-     */
-    private function buildAuthorizationHeader(array $oauthParams): string
-    {
-        $headerParts = [];
-
-        foreach ($oauthParams as $key => $value) {
-            if (strpos($key, 'oauth_') === 0) {
-                $headerParts[] = $this->urlEncode($key) . '="' . $this->urlEncode((string) $value) . '"';
-            }
-        }
-
-        return 'OAuth ' . implode(', ', $headerParts);
-    }
-
-    /**
-     * RFC 3986-compliant URL encoding (for OAuth).
-     */
-    private function urlEncode(string $value): string
-    {
-        return str_replace(
-            ['+', '%7E'],
-            ['%20', '~'],
-            rawurlencode($value)
-        );
     }
 }
