@@ -35,7 +35,7 @@ Then open (each page shows copy-paste PHP and a live call when credentials are s
 - http://localhost:8080/image — `POST /image`
 - http://localhost:8080/image-to-image — `image` with `reference_images`
 - http://localhost:8080/video — `POST /video`
-- http://localhost:8080/video-status — note on job polling (no `videoStatus()` helper in the SDK)
+- http://localhost:8080/video-status — job polling example (`getVideo()`)
 - http://localhost:8080/transcribe-file — `transcribeFile()`
 - http://localhost:8080/transcribe-status — `getTranscribeRecorded()`
 - http://localhost:8080/tool-bgremove — `toolsGeneralBackgroundRemoval()`
