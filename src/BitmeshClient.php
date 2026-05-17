@@ -52,6 +52,22 @@ class BitmeshClient
     }
 
     /**
+     * Poll video generation job status / result (GET /video/{id}).
+     *
+     * @param  array<string, scalar|null>  $query  Optional query string params (e.g. test flags if supported)
+     * @return array<string, mixed>
+     */
+    public function getVideo(string $id, array $query = []): array
+    {
+        $id = trim($id);
+        if ($id === '') {
+            throw new RuntimeException('Video job id is required.');
+        }
+
+        return $this->sendSignedGetRequest('video/'.rawurlencode($id), $query);
+    }
+
+    /**
      * @param  array<string, mixed>  $fields
      * @return array<string, mixed>
      */

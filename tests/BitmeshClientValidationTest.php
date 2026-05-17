@@ -17,6 +17,15 @@ class BitmeshClientValidationTest extends TestCase
         $client->getTranscribeRecorded('  ');
     }
 
+    public function test_get_video_rejects_empty_id(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Video job id is required.');
+
+        $client = new BitmeshClient('key', 'secret');
+        $client->getVideo("\n");
+    }
+
     public function test_tools_query_async_task_result_rejects_empty_task_id(): void
     {
         $this->expectException(RuntimeException::class);

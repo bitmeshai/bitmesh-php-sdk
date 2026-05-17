@@ -101,6 +101,18 @@ $response = $client->video([
 $id = $response['id'] ?? null;
 ```
 
+Poll job status (`GET /video/{id}`) using the returned `id`:
+
+```php
+$videoId = (string) ($response['id'] ?? '');
+if ($videoId !== '') {
+    $status = $client->getVideo($videoId, [
+        // optional query params if supported (e.g. test)
+    ]);
+    echo $status['status'] ?? json_encode($status);
+}
+```
+
 ---
 
 ## Transcription (upload + poll)

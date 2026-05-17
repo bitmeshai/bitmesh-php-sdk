@@ -42,7 +42,14 @@ On failure the client throws **`RuntimeException`** (HTTP status and body text, 
 ## `video(array $payload): array`
 
 - **HTTP**: `POST /video` (`application/json`)
-- **Description**: Video generation. Typical keys include `prompt`, `model`, `frame_images`, etc. The response shape is provider-specific (often includes `id` for a job). This client does **not** include a separate “poll video status” helper; use provider fields in the response or the HTTP API directly if you need follow-up polling.
+- **Description**: Video generation. Typical keys include `prompt`, `model`, `frame_images`, etc. The response shape is provider-specific (often includes `id` for a job to poll).
+
+---
+
+## `getVideo(string $id, array $query = []): array`
+
+- **HTTP**: `GET /video/{id}` (id is URL-encoded; optional `$query` merged into the query string)
+- **Description**: Poll video generation job status or retrieve result metadata. Empty or whitespace-only `$id` throws **`RuntimeException`**.
 
 ---
 

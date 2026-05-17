@@ -442,7 +442,7 @@ $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
 // POST /video — payload keys depend on the provider (often prompt, model, frame_images, …).
 $response = $client->video([
     'prompt' => 'A cat walking in the rain, cinematic',
-    'model' => 'bytedance/seedance-1.0-lite',
+    'model' => 'minimax/video-01-director',
     'frame_images' => [
         [
             'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200&auto=format&fit=crop',
@@ -466,7 +466,7 @@ PHP;
                 $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
                 $response = $client->video([
                     'prompt' => 'A cat walking in the rain, cinematic, 4k',
-                    'model' => 'bytedance/seedance-1.0-lite',
+                    'model' => 'minimax/video-01-director',
                     'frame_images' => [
                         [
                             'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200&auto=format&fit=crop',
@@ -495,11 +495,14 @@ PHP;
     private function renderVideoStatus(): string
     {
         $snippet = <<<'PHP'
-// After $client->video([...]) returns, use the Bitmesh HTTP API or dashboard to track job status.
-// BitmeshClient has no videoStatus() helper (see bitmesh-php-sdk doc/api-reference.md).
+<?php
+// Poll after $client->video([...]) returns a job id
+$status = $client->getVideo((string) $id, [
+    // optional query params if supported
+]);
 PHP;
-        $html = "<h1>Video status</h1><p>The published PHP SDK sends <code>POST /video</code> but does <strong>not</strong> wrap a <code>GET /video/{id}</code> poll. Track completion with the Bitmesh API docs, webhooks, or your project dashboard.</p>";
-        $html .= "<h2>SDK note</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
+        $html = "<h1>Video status</h1><p>Poll a video job with <code>GET /video/{id}</code> via <code>BitmeshClient::getVideo()</code>.</p>";
+        $html .= "<h2>Example code</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
 
         if (isset($_GET['id']) && trim((string) $_GET['id']) !== '') {
             $id = trim((string) $_GET['id']);
