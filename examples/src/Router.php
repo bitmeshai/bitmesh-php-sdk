@@ -16,6 +16,8 @@ final class Router
         '/image-to-image' => 'imageToImage',
         '/video' => 'video',
         '/video-status' => 'videoStatus',
+        '/image-animate' => 'imageAnimate',
+        '/image-animate-status' => 'imageAnimateStatus',
         '/transcribe-file' => 'transcribeFile',
         '/transcribe-status' => 'transcribeStatus',
         '/tool-bgremove' => 'toolBgremove',
@@ -48,7 +50,7 @@ final class Router
 
     private function home(): void
     {
-        echo $this->renderLayout('Home', '<h1>Bitmesh Demo</h1><p>Choose: <a href="/chat">Chat</a>, <a href="/chat-vision">Chat Vision</a>, <a href="/image">Image</a>, <a href="/image-to-image">Image to Image</a>, <a href="/video">Video</a>, <a href="/video-status">Video status</a>, <a href="/transcribe-file">Transcribe file</a>, <a href="/transcribe-status">Transcribe status</a>, <a href="/tool-bgremove">Background removal</a>, <a href="/tool-tryon">Try-on clothes</a>.</p>');
+        echo $this->renderLayout('Home', '<h1>Bitmesh Demo</h1><p>Choose: <a href="/chat">Chat</a>, <a href="/chat-vision">Chat Vision</a>, <a href="/image">Image</a>, <a href="/image-to-image">Image to Image</a>, <a href="/video">Video</a>, <a href="/video-status">Video status</a>, <a href="/image-animate">Image to Video</a>, <a href="/transcribe-file">Transcribe file</a>, <a href="/transcribe-status">Transcribe status</a>, <a href="/tool-bgremove">Background removal</a>, <a href="/tool-tryon">Try-on clothes</a>.</p>');
     }
 
     private function chat(): void
@@ -79,6 +81,16 @@ final class Router
     private function videoStatus(): void
     {
         echo $this->renderLayout('Video status', $this->renderVideoStatus());
+    }
+
+    private function imageAnimate(): void
+    {
+        echo $this->renderLayout('Image to Video', $this->renderImageAnimate());
+    }
+
+    private function imageAnimateStatus(): void
+    {
+        echo $this->renderLayout('Image to Video status', $this->renderImageAnimateStatus());
     }
 
     private function transcribeFile(): void
@@ -147,6 +159,7 @@ final class Router
         <a href="/image">Image</a>
         <a href="/image-to-image">Image to Image</a>
         <a href="/video">Video</a>
+        <a href="/image-animate">Image to Video</a>
         <a href="/transcribe-file">Transcribe File</a>
         <a href="/transcribe-status">Transcribe Status</a>
         <a href="/tool-bgremove">Background removal</a>
@@ -512,6 +525,145 @@ PHP;
         }
 
         $html .= '<p><a href="/video">Back to Video</a></p>';
+
+        return $html;
+    }
+
+    private function renderImageAnimate(): string
+    {
+        ini_set('upload_max_filesize', '32M');
+        ini_set('post_max_size', '32M');
+
+        $snippet = <<<'PHP'
+<?php
+// Create: POST /tools/video/image-animate (image base64 inside JSON). Async — returns a task_id.
+$create = $client->imageAnimate([
+    'model' => 'animate-2.4-faster', // or animate-2.4-advanced
+    'image' => ['bytes_base64_encoded' => base64_encode((string) file_get_contents('/path/to/photo.jpg'))],
+    'seconds' => 5, // 1..10
+    'prompt' => 'gentle motion, cinematic',
+    'aspect_ratio' => '9:16',
+    // 'callback_url' => 'https://you.example/webhook', // optional
+    // 'test' => true, // no DomoAI call, no charge
+]);
+$taskId = $create['data']['task_id'] ?? null;
+PHP;
+        $html = "<h1>Image to Video</h1><p>Animate a still image with <code>BitmeshClient::imageAnimate()</code> (<code>POST /tools/video/image-animate</code>, DomoAI). Async — returns a <code>task_id</code> to poll on <a href=\"/image-animate-status\">Image to Video status</a>.</p>";
+        $html .= "<h2>Example code</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
+
+        $consumerKey = (string) ($_ENV['BITMESH_CONSUMER_KEY'] ?? getenv('BITMESH_CONSUMER_KEY') ?: '');
+        $consumerSecret = (string) ($_ENV['BITMESH_CONSUMER_SECRET'] ?? getenv('BITMESH_CONSUMER_SECRET') ?: '');
+
+        $disabled = ($consumerKey === '' || $consumerSecret === '') ? ' disabled' : '';
+        $html .= '<h2>Try it</h2><form method="post" enctype="multipart/form-data">'
+            . '<p><label>Image<br><input type="file" name="image" accept="image/*" required' . $disabled . '></label></p>'
+            . '<p><label>Model<br><select name="model"' . $disabled . '><option value="animate-2.4-faster">animate-2.4-faster</option><option value="animate-2.4-advanced">animate-2.4-advanced</option></select></label></p>'
+            . '<p><label>Seconds (1-10)<br><input type="number" name="seconds" min="1" max="10" value="5"' . $disabled . '></label></p>'
+            . '<p><label>Prompt (optional)<br><input type="text" name="prompt" style="width:100%;max-width:480px;"' . $disabled . '></label></p>'
+            . '<p><label>Aspect ratio<br><select name="aspect_ratio"' . $disabled . '><option value="">auto</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option></select></label></p>'
+            . '<p><label><input type="checkbox" name="test" value="1"' . $disabled . '> Test mode (no charge)</label></p>'
+            . '<p><button type="submit"' . $disabled . '>Create video task</button></p></form>';
+
+        if ($consumerKey === '' || $consumerSecret === '') {
+            $html .= "<p>Set <code>BITMESH_CONSUMER_KEY</code> and <code>BITMESH_CONSUMER_SECRET</code> in your environment to use the form.</p>";
+        }
+
+        if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            return $html;
+        }
+
+        if ($consumerKey === '' || $consumerSecret === '') {
+            return $html;
+        }
+
+        if (! isset($_FILES['image']) || ! is_uploaded_file((string) ($_FILES['image']['tmp_name'] ?? ''))) {
+            $html .= "<p class=\"error\">Please choose an image file.</p>";
+
+            return $html;
+        }
+
+        if ((int) ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $html .= "<p class=\"error\">Upload failed (code " . (int) $_FILES['image']['error'] . ").</p>";
+
+            return $html;
+        }
+
+        $payload = [
+            'model' => (string) ($_POST['model'] ?? 'animate-2.4-faster'),
+            'image' => ['bytes_base64_encoded' => base64_encode((string) file_get_contents((string) $_FILES['image']['tmp_name']))],
+            'seconds' => (int) ($_POST['seconds'] ?? 5),
+        ];
+        $prompt = trim((string) ($_POST['prompt'] ?? ''));
+        if ($prompt !== '') {
+            $payload['prompt'] = $prompt;
+        }
+        $aspectRatio = trim((string) ($_POST['aspect_ratio'] ?? ''));
+        if ($aspectRatio !== '') {
+            $payload['aspect_ratio'] = $aspectRatio;
+        }
+        if (isset($_POST['test']) && (string) $_POST['test'] !== '' && (string) $_POST['test'] !== '0') {
+            $payload['test'] = true;
+        }
+
+        try {
+            $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
+            $response = $client->imageAnimate($payload);
+            $html .= "<h2>API response</h2><pre>" . htmlspecialchars(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . "</pre>";
+            $taskId = $response['data']['task_id'] ?? null;
+            if ($taskId !== null && $taskId !== '') {
+                $html .= '<p><a href="/image-animate-status?task_id=' . htmlspecialchars(rawurlencode((string) $taskId)) . '">Check task status</a></p>';
+            }
+        } catch (\Throwable $e) {
+            $html .= "<h2>API response</h2><p class=\"error\">Error: " . htmlspecialchars($e->getMessage()) . "</p>";
+        }
+
+        return $html;
+    }
+
+    private function renderImageAnimateStatus(): string
+    {
+        $snippet = <<<'PHP'
+<?php
+// Poll: GET /tools/video/image-animate/{task_id}
+$status = $client->getImageAnimate($taskId); // pass ['test' => 1] for test mode
+$state = $status['data']['status'] ?? 'UNKNOWN'; // PENDING|QUEUING|PROCESSING|SUCCESS|FAILED|CANCELED
+$videoUrl = $status['data']['output_videos'][0]['url'] ?? null;
+PHP;
+        $html = "<h1>Image to Video status</h1><p>Poll a task with <code>getImageAnimate()</code> (<code>GET /tools/video/image-animate/{task_id}</code>).</p>";
+        $html .= "<h2>Example code</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
+
+        $taskId = isset($_GET['task_id']) ? trim((string) $_GET['task_id']) : '';
+        $html .= '<h2>Check status</h2><form method="get" action="/image-animate-status"><p><label for="task_id">Task ID</label><br><input id="task_id" type="text" name="task_id" value="' . htmlspecialchars($taskId) . '" placeholder="Enter task_id" required style="width:100%;max-width:480px;"></p><p><button type="submit">Get status</button></p></form>';
+        if ($taskId === '') {
+            return $html;
+        }
+
+        $consumerKey = (string) ($_ENV['BITMESH_CONSUMER_KEY'] ?? getenv('BITMESH_CONSUMER_KEY') ?: '');
+        $consumerSecret = (string) ($_ENV['BITMESH_CONSUMER_SECRET'] ?? getenv('BITMESH_CONSUMER_SECRET') ?: '');
+
+        if ($consumerKey === '' || $consumerSecret === '') {
+            $html .= "<p class=\"error\">Set <code>BITMESH_CONSUMER_KEY</code> and <code>BITMESH_CONSUMER_SECRET</code> in your environment.</p>";
+
+            return $html;
+        }
+
+        try {
+            $client = new BitmeshClient($consumerKey, $consumerSecret, 120);
+            $response = $client->getImageAnimate($taskId);
+            $html .= "<h2>API response</h2><pre>" . htmlspecialchars(json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . "</pre>";
+            $data = $response['data'] ?? [];
+            if (isset($data['status'])) {
+                $html .= "<p><strong>Status:</strong> " . htmlspecialchars((string) $data['status']) . "</p>";
+            }
+            $videoUrl = $data['output_videos'][0]['url'] ?? null;
+            if (is_string($videoUrl) && $videoUrl !== '') {
+                $html .= '<p><video controls src="' . htmlspecialchars($videoUrl) . '" style="max-width:100%;border:1px solid #ddd;"></video></p>';
+                $html .= '<p><a href="' . htmlspecialchars($videoUrl) . '" target="_blank" rel="noopener noreferrer">Open video URL</a></p>';
+            }
+            $html .= '<p><a href="/image-animate">Back to Image to Video</a></p>';
+        } catch (\Throwable $e) {
+            $html .= "<h2>API response</h2><p class=\"error\">Error: " . htmlspecialchars($e->getMessage()) . "</p>";
+        }
 
         return $html;
     }

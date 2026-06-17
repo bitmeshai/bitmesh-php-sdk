@@ -89,6 +89,23 @@ On failure the client throws **`RuntimeException`** (HTTP status and body text, 
 
 ---
 
+## `imageAnimate(array $payload): array`
+
+- **HTTP**: `POST /tools/video/image-animate` (`application/json`)
+- **Description**: DomoAI image-to-video. **Async**: returns a `task_id` immediately; the cost is settled later (no charge at submit time). Poll with `getImageAnimate()` or pass a `callback_url` in the payload to be notified.
+- **Payload keys**: `model` (required, e.g. `animate-2.4-faster` | `animate-2.4-advanced`), `image` (required object — provide `bytes_base64_encoded` *or* `domoai_uri`), `seconds` (required, `1`–`10`), optional `prompt` (≤2000), `aspect_ratio` (`16:9` | `9:16` | `1:1` | `4:3` | `3:4`), `callback_url`, `test`.
+- **Image**: base64-encode locally, e.g. `'image' => ['bytes_base64_encoded' => base64_encode((string) file_get_contents($path))]`.
+- **Returns**: Decoded JSON, typically `{"code":0,"data":{"task_id":"..."}}`.
+
+---
+
+## `getImageAnimate(string $taskId, array $query = []): array`
+
+- **HTTP**: `GET /tools/video/image-animate/{task_id}` (id is URL-encoded; optional `$query` merged into the query string, e.g. `['test' => 1]`)
+- **Description**: Poll an image-to-video task. The response `data.status` cycles `PENDING` → `QUEUING` → `PROCESSING` → `SUCCESS` (terminal also `FAILED` / `CANCELED`); on `SUCCESS`, `data.output_videos[].url` holds the (time-limited) video URL and `data.credits` the credits consumed. Empty or whitespace-only `$taskId` throws **`RuntimeException`**.
+
+---
+
 ## `getToolsResult(string $path): string`
 
 - **HTTP**: `GET /tools-result/{path}` (path segments after `tools-result/`)
