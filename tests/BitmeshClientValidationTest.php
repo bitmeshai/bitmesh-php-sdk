@@ -35,6 +35,15 @@ class BitmeshClientValidationTest extends TestCase
         $client->toolsQueryAsyncTaskResult("\t");
     }
 
+    public function test_get_image_animate_rejects_empty_task_id(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Image-animate task id is required.');
+
+        $client = new BitmeshClient('key', 'secret');
+        $client->getImageAnimate('   ');
+    }
+
     public function test_get_tools_result_rejects_empty_path(): void
     {
         $this->expectException(RuntimeException::class);

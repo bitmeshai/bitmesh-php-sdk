@@ -115,6 +115,45 @@ if ($videoId !== '') {
 
 ---
 
+## Image-to-video (DomoAI: create + poll)
+
+Submit a still image and animate it (`POST /tools/video/image-animate`). The image goes in the JSON payload as base64:
+
+```php
+$create = $client->imageAnimate([
+    'model' => 'animate-2.4-faster',          // or animate-2.4-advanced
+    'image' => [
+        'bytes_base64_encoded' => base64_encode((string) file_get_contents('/path/to/photo.jpg')),
+        // or: 'domoai_uri' => 'domoai://...'
+    ],
+    'seconds' => 5,                            // 1..10
+    'prompt' => 'gentle motion, cinematic',    // optional
+    'aspect_ratio' => '9:16',                  // optional: 16:9|9:16|1:1|4:3|3:4
+    // 'callback_url' => 'https://you.example/webhook', // optional: receive results via webhook
+    // 'test' => true,                         // optional: no DomoAI call, no charge
+]);
+
+$taskId = (string) ($create['data']['task_id'] ?? '');
+```
+
+Poll until terminal (`GET /tools/video/image-animate/{task_id}`):
+
+```php
+do {
+    sleep(4);
+    $status = $client->getImageAnimate($taskId);   // pass ['test' => 1] to poll in test mode
+    $state = $status['data']['status'] ?? 'UNKNOWN';
+} while (! in_array($state, ['SUCCESS', 'FAILED', 'CANCELED'], true));
+
+if ($state === 'SUCCESS') {
+    $videoUrl = $status['data']['output_videos'][0]['url'] ?? null; // time-limited; download promptly
+}
+```
+
+Alternatively, pass `callback_url` on create and the proxy POSTs each DomoAI status update to it.
+
+---
+
 ## Transcription (upload + poll)
 
 Submit a local file (`POST /transcribe-recorded`):

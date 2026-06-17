@@ -135,6 +135,43 @@ class BitmeshClient
     }
 
     /**
+     * DomoAI image-to-video (POST /tools/video/image-animate).
+     *
+     * Async: returns a task_id immediately. Poll getImageAnimate($taskId) until the
+     * status is terminal, or pass a "callback_url" in $payload to be notified.
+     *
+     * Provide the image inside the payload as DomoAI expects, e.g.:
+     *   'image' => ['bytes_base64_encoded' => base64_encode((string) file_get_contents($path))]
+     *   // or 'image' => ['domoai_uri' => 'domoai://...']
+     *
+     * Typical payload keys: model (required), image (required), seconds (required, 1-10),
+     * prompt, aspect_ratio, callback_url, test.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function imageAnimate(array $payload): array
+    {
+        return $this->sendSignedJsonRequest('POST', '/tools/video/image-animate', $payload);
+    }
+
+    /**
+     * Poll DomoAI image-to-video task status/result (GET /tools/video/image-animate/{task_id}).
+     *
+     * @param  array<string, scalar|null>  $query  Optional query params (e.g. ['test' => 1])
+     * @return array<string, mixed>
+     */
+    public function getImageAnimate(string $taskId, array $query = []): array
+    {
+        $taskId = trim($taskId);
+        if ($taskId === '') {
+            throw new RuntimeException('Image-animate task id is required.');
+        }
+
+        return $this->sendSignedGetRequest('tools/video/image-animate/'.rawurlencode($taskId), $query);
+    }
+
+    /**
      * Fetch a proxied tool result asset (GET /tools-result/{path}). No OAuth required.
      */
     public function getToolsResult(string $path): string
