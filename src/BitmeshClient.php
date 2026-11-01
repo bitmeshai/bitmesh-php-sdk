@@ -303,6 +303,7 @@ class BitmeshClient
             }
         }
 
+        $fields = $this->normalizeMultipartFields($fields);
         $url = $this->buildUrl($path);
         $oauthParams = $this->generateOAuthParams('POST', $url);
         $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');
@@ -430,10 +431,14 @@ class BitmeshClient
     }
 
     /**
-     * @param  array<string, mixed>  $nonFileFields
+     * The server hashes the non-file fields as it receives them: every value is
+     * text, then trimmed, with empty strings turned into null. Sign that same view.
+     *
+     * @param  array<string, mixed>  $nonFileFields  Fields already passed through normalizeMultipartFields()
      */
     private function generateMultipartPayloadSignature(array $nonFileFields, string $oauthSignature): string
     {
+        $nonFileFields = $this->serverViewOfFields($nonFileFields);
         ksort($nonFileFields);
         $json = json_encode($nonFileFields, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (! is_string($json)) {
@@ -441,6 +446,58 @@ class BitmeshClient
         }
 
         return hash('sha256', $json.$this->key.$oauthSignature);
+    }
+
+    /**
+     * Multipart sends every value as text, so convert values to the strings that
+     * actually go over the wire: booleans become "1" or "0", numbers become their
+     * string form, and nulls and empty lists are left out (cURL would not send them).
+     *
+     * @param  array<array-key, mixed>  $fields
+     * @return array<array-key, mixed>
+     */
+    private function normalizeMultipartFields(array $fields): array
+    {
+        $normalized = [];
+
+        foreach ($fields as $key => $value) {
+            if (is_array($value)) {
+                $value = $this->normalizeMultipartFields($value);
+                if ($value === []) {
+                    continue;
+                }
+            } elseif (is_bool($value)) {
+                $value = $value ? '1' : '0';
+            } elseif (is_int($value) || is_float($value) || $value instanceof \Stringable) {
+                $value = (string) $value;
+            } elseif ($value === null) {
+                continue;
+            } elseif (! is_string($value)) {
+                throw new RuntimeException(sprintf('Multipart field "%s" must be a string, number, boolean or array.', (string) $key));
+            }
+
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $fields
+     * @return array<array-key, mixed>
+     */
+    private function serverViewOfFields(array $fields): array
+    {
+        foreach ($fields as $key => $value) {
+            if (is_array($value)) {
+                $fields[$key] = $this->serverViewOfFields($value);
+            } elseif (is_string($value)) {
+                $value = trim($value);
+                $fields[$key] = $value === '' ? null : $value;
+            }
+        }
+
+        return $fields;
     }
 
     /**
@@ -466,6 +523,7 @@ class BitmeshClient
             throw new RuntimeException('Audio file does not exist or is not readable: '.$audioFilePath);
         }
 
+        $fields = $this->normalizeMultipartFields($fields);
         $url = $this->buildUrl($path);
         $oauthParams = $this->generateOAuthParams($method, $url);
         $oauthSignature = (string) ($oauthParams['oauth_signature'] ?? '');

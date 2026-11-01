@@ -32,6 +32,17 @@ export BITMESH_TEST_CONSUMER_SECRET="your-oauth-consumer-secret"
 ./vendor/bin/phpunit
 ```
 
+Or keep the credentials in a local `phpunit.xml` (git-ignored; PHPUnit reads it in place of `phpunit.xml.dist`): copy `phpunit.xml.dist` and add
+
+```xml
+<php>
+    <env name="BITMESH_TEST_CONSUMER_KEY" value="your-oauth-consumer-key"/>
+    <env name="BITMESH_TEST_CONSUMER_SECRET" value="your-oauth-consumer-secret"/>
+</php>
+```
+
+Never commit credentials to `phpunit.xml.dist`.
+
 To also run video tests (higher cost), include the `expensive` group:
 
 ```bash

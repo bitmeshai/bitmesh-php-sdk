@@ -4,3 +4,5 @@ composer.lock
 .phpunit.result.cache
 .php-cs-fixer.cache
 
+# Local PHPUnit config, e.g. with test credentials. Keep secrets out of phpunit.xml.dist.
+phpunit.xml

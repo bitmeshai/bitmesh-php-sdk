@@ -49,7 +49,7 @@ Vision-style content is expressed in the payload as the API expects (nested `con
 
 ```php
 $response = $client->chat([
-    'model' => 'google/gemma-3n-e4b-it',
+    'model' => 'qwen/qwen3.5-9b',
     'messages' => [
         [
             'role' => 'user',
@@ -89,7 +89,7 @@ $jobOrData = $response; // shape depends on provider; often includes `id`
 ```php
 $response = $client->video([
     'prompt' => 'Short cinematic scene',
-    'model' => 'bytedance/seedance-1.0-lite',
+    'model' => 'vidu/vidu-q3',
     'frame_images' => [
         [
             'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=1200',
@@ -182,19 +182,13 @@ echo $status['status'] ?? 'unknown';
 
 ```php
 $result = $client->toolsGeneralBackgroundRemoval(
-    ['return_form' => 'mask'],
+    ['return_form' => 'mask'],   // or 'whiteBK', 'crop'; leave out for a transparent PNG
     '/path/to/input.png'
 );
 
-// Typical shape includes data.image_url (absolute URL with /tools-result/...)
+// A plain link to the provider's storage: no signature needed, deleted after about 24 hours
 $imageUrl = $result['data']['image_url'] ?? null;
-
-$path = parse_url((string) $imageUrl, PHP_URL_PATH);
-$prefix = '/tools-result/';
-$relative = ltrim(substr((string) $path, strpos((string) $path, $prefix) + strlen($prefix)), '/');
-
-$bytes = $client->getToolsResult($relative);
-file_put_contents('/tmp/mask.png', $bytes);
+file_put_contents('/tmp/mask.png', file_get_contents($imageUrl));
 ```
 
 ---
@@ -204,9 +198,8 @@ file_put_contents('/tmp/mask.png', $bytes);
 ```php
 $tryOn = $client->toolsPortraitTryOnClothes(
     [
-        'task_type' => 'async',
-        'resolution' => '-1',
-        'restore_face' => 'true',
+        'resolution' => '-1',     // -1 keeps the photo's resolution; or 1024, 1280
+        'restore_face' => true,   // sent as "1"
     ],
     [
         'person_image' => '/path/to/person.png',
@@ -217,11 +210,19 @@ $tryOn = $client->toolsPortraitTryOnClothes(
 
 $taskId = (string) ($tryOn['task_id'] ?? '');
 
-$query = $client->toolsQueryAsyncTaskResult($taskId);
-echo $query['status'] ?? json_encode($query);
+// Poll every 10 seconds: polling counts toward the per-IP media rate limit
+do {
+    sleep(10);
+    $query = $client->toolsQueryAsyncTaskResult($taskId);
+} while (in_array($query['status'] ?? null, ['queued', 'processing'], true));
+
+if (($query['status'] ?? null) === 'success') {
+    // A plain link to the provider's storage, deleted after about 24 hours
+    file_put_contents('/tmp/try-on.png', file_get_contents($query['output']['image_url']));
+}
 ```
 
-Use the `task_id` returned from a successful async try-on submission when polling.
+Multipart fields travel as text. The client sends booleans as `"1"`/`"0"` and numbers as strings, signs exactly what it sends, and leaves out `null`s, so you can pass native PHP values.
 
 ---
 

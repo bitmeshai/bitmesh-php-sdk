@@ -4,7 +4,7 @@ namespace BitmeshAI\Tests;
 
 class BitmeshClientToolsBackgroundRemovalTest extends BitmeshClientTestCase
 {
-    public function test_tools_general_background_removal_and_get_tools_result(): void
+    public function test_tools_general_background_removal_and_download_result(): void
     {
         $imagePath = $this->fixturePath('stool.png');
         $this->assertFileExists($imagePath);
@@ -18,8 +18,10 @@ class BitmeshClientToolsBackgroundRemovalTest extends BitmeshClientTestCase
         $this->assertEquals('success', $response['status']);
         $this->assertNotEmpty($response['data']['image_url'] ?? null, 'image_url should be present and non-empty');
 
-        $resultPath = $this->toolsResultPathFromImageUrl((string) $response['data']['image_url']);
-        $imageBytes = $client->getToolsResult($resultPath);
-        $this->assertNotEmpty($imageBytes, 'Expected non-empty proxied tools-result image body.');
+        // The link is plain and unsigned: fetch it exactly as returned.
+        $imageBytes = @file_get_contents((string) $response['data']['image_url']);
+        $this->assertNotFalse($imageBytes, 'Could not download '.$response['data']['image_url']);
+        // PNG by default; a mask can come back as JPEG.
+        $this->assertMatchesRegularExpression('/^(\x89PNG|\xFF\xD8\xFF)/', (string) $imageBytes, 'Expected a PNG or JPEG result.');
     }
 }

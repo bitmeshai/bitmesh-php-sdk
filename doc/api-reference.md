@@ -71,21 +71,23 @@ On failure the client throws **`RuntimeException`** (HTTP status and body text, 
 ## `toolsGeneralBackgroundRemoval(array $fields, string $imagePath): array`
 
 - **HTTP**: `POST /tools/general/background-removal` (multipart)
-- **Description**: Background removal. **`image`** is taken from `$imagePath`. Other tool options go in `$fields` (e.g. `return_form` => `mask` | `whiteBK` | `crop`). File must exist and be readable.
+- **Description**: Background removal. **`image`** is taken from `$imagePath` (JPEG, PNG, BMP or WebP, up to 3 MB, under 2000×2000 px). Other tool options go in `$fields` (e.g. `return_form` => `mask` | `whiteBK` | `crop`). File must exist and be readable.
+- **Returns**: `data.image_url`, a plain link to the result on the provider's storage (deleted after about 24 hours).
 
 ---
 
 ## `toolsPortraitTryOnClothes(array $fields, array $files): array`
 
 - **HTTP**: `POST /tools/portrait/try-on-clothes` (multipart)
-- **Description**: Virtual try-on. `$files` maps **field name → absolute path** (e.g. `person_image`, `top_garment`, `bottom_garment`). `$fields` may include `task_type`, `resolution`, `restore_face`, etc. Every path must be a readable file.
+- **Description**: Virtual try-on. `$files` maps **field name → absolute path** (`person_image` and `top_garment` required, `bottom_garment` optional; up to 5 MB each). `$fields` may include `resolution` (`-1`, `1024`, `1280`), `restore_face` and `test`. Every path must be a readable file.
+- **Returns**: `task_id` to poll with `toolsQueryAsyncTaskResult()`. Charged when the task is accepted.
 
 ---
 
 ## `toolsQueryAsyncTaskResult(string $taskId): array`
 
 - **HTTP**: `POST /tools/query-async-task-result` (`application/json` body `{"task_id":"..."}`)
-- **Description**: Poll an async tools task. Empty `$taskId` throws **`RuntimeException`**.
+- **Description**: Poll an async tools task. `status` is `queued`, `processing`, `success` or `fail`; on `success` the picture is at `output.image_url`. An unknown task id answers `400`. Poll every 10 seconds or slower: this endpoint shares the per-IP media rate limit. Empty `$taskId` throws **`RuntimeException`**.
 
 ---
 
@@ -93,7 +95,7 @@ On failure the client throws **`RuntimeException`** (HTTP status and body text, 
 
 - **HTTP**: `POST /tools/video/image-animate` (`application/json`)
 - **Description**: DomoAI image-to-video. **Async**: returns a `task_id` immediately; the cost is settled later (no charge at submit time). Poll with `getImageAnimate()` or pass a `callback_url` in the payload to be notified.
-- **Payload keys**: `model` (required, e.g. `animate-2.4-faster` | `animate-2.4-advanced`), `image` (required object — provide `bytes_base64_encoded` *or* `domoai_uri`), `seconds` (required, `1`–`10`), optional `prompt` (≤2000), `aspect_ratio` (`16:9` | `9:16` | `1:1` | `4:3` | `3:4`), `callback_url`, `test`.
+- **Payload keys**: `model` (required, `animate-2.4-faster` | `animate-2.4-advanced`), `image` (required object with `bytes_base64_encoded`; JPEG, PNG, WebP or AVIF up to 10 MB), `seconds` (required integer, `1`–`10`), optional `prompt` (≤2000), `aspect_ratio` (`16:9` | `9:16` | `1:1` | `4:3` | `3:4`), `callback_url`, `test`.
 - **Image**: base64-encode locally, e.g. `'image' => ['bytes_base64_encoded' => base64_encode((string) file_get_contents($path))]`.
 - **Returns**: Decoded JSON, typically `{"code":0,"data":{"task_id":"..."}}`.
 
@@ -102,14 +104,14 @@ On failure the client throws **`RuntimeException`** (HTTP status and body text, 
 ## `getImageAnimate(string $taskId, array $query = []): array`
 
 - **HTTP**: `GET /tools/video/image-animate/{task_id}` (id is URL-encoded; optional `$query` merged into the query string, e.g. `['test' => 1]`)
-- **Description**: Poll an image-to-video task. The response `data.status` cycles `PENDING` → `QUEUING` → `PROCESSING` → `SUCCESS` (terminal also `FAILED` / `CANCELED`); on `SUCCESS`, `data.output_videos[].url` holds the (time-limited) video URL and `data.credits` the credits consumed. Empty or whitespace-only `$taskId` throws **`RuntimeException`**.
+- **Description**: Poll an image-to-video task. The response `data.status` cycles `PENDING` → `QUEUING` → `PROCESSING` → `SUCCESS` (terminal also `FAILED` / `CANCELED`); on `SUCCESS`, `data.output_videos[].url` holds the video URL (signed, valid for about 8 hours) and `data.credits` the credits consumed. Empty or whitespace-only `$taskId` throws **`RuntimeException`**.
 
 ---
 
 ## `getToolsResult(string $path): string`
 
 - **HTTP**: `GET /tools-result/{path}` (path segments after `tools-result/`)
-- **Description**: Download raw bytes for a proxied tool result (often an image). **No** OAuth or payload signature. Pass the path relative to `tools-result/` (leading slashes are normalized). Empty path throws **`RuntimeException`**. Returns the response body as a **`string`** (binary-safe).
+- **Description**: Download raw bytes for a result served by the API under `/tools-result/`. Current tools return plain links to the provider's storage instead; fetch those directly. **No** OAuth or payload signature. Pass the path relative to `tools-result/` (leading slashes are normalized). Empty path throws **`RuntimeException`**. Returns the response body as a **`string`** (binary-safe).
 
 ---
 
