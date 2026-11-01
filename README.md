@@ -4,10 +4,11 @@ PHP SDK for calling the Bitmesh AI API (chat, image, video, image-to-video, tran
 
 ### Installation
 
-Install via Composer:
+Install via Composer. The package is not on Packagist yet, so add the GitHub repository first:
 
 ```bash
-composer require bitmeshai/bitmesh-php-sdk
+composer config repositories.bitmesh vcs https://github.com/bitmeshai/bitmesh-php-sdk
+composer require bitmeshai/bitmesh-php-sdk:^2.1
 ```
 
 ### Development and tests
