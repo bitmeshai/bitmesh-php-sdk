@@ -42,7 +42,7 @@ class BitmeshClientChatTest extends BitmeshClientTestCase
         $client = $this->createClient(120);
 
         $payload = [
-            'model' => 'google/gemma-3n-e4b-it',
+            'model' => 'qwen/qwen3.5-9b',
             'messages' => [
                 ['role' => 'system', 'content' => 'You are a riddle solver.'],
                 [

@@ -188,7 +188,7 @@ $client = new BitmeshClient($consumerKey, $consumerSecret, 120);
 
 // POST /chat — pass the JSON body the API expects (model, messages, max_tokens, …).
 $response = $client->chat([
-    'model' => 'google/gemma-3n-e4b-it',
+    'model' => 'qwen/qwen3.5-9b',
     'messages' => [
         ['role' => 'system', 'content' => 'You are a helpful assistant.'],
         ['role' => 'user', 'content' => 'What are some fun things to do with AI?'],
@@ -216,7 +216,7 @@ PHP;
             try {
                 $client = new BitmeshClient($consumerKey, $consumerSecret, 120);
                 $response = $client->chat([
-                    'model' => 'google/gemma-3n-e4b-it',
+                    'model' => 'qwen/qwen3.5-9b',
                     'messages' => [
                         ['role' => 'system', 'content' => 'You are a helpful assistant.'],
                         ['role' => 'user', 'content' => 'Say "Hello from Bitmesh" in one short sentence.'],
@@ -254,7 +254,7 @@ $client = new BitmeshClient($consumerKey, $consumerSecret, 120);
 
 // Vision-style messages: nested content with text + image_url blocks.
 $response = $client->chat([
-    'model' => 'google/gemma-3n-e4b-it',
+    'model' => 'qwen/qwen3.5-9b',
     'messages' => [
         ['role' => 'system', 'content' => 'You are a helpful assistant.'],
         [
@@ -282,7 +282,7 @@ PHP;
             try {
                 $client = new BitmeshClient($consumerKey, $consumerSecret, 120);
                 $response = $client->chat([
-                    'model' => 'google/gemma-3n-e4b-it',
+                    'model' => 'qwen/qwen3.5-9b',
                     'messages' => [
                         ['role' => 'system', 'content' => 'You are a helpful assistant.'],
                         [
@@ -327,7 +327,7 @@ $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
 // POST /image — pass prompt, model, and provider-specific options.
 $response = $client->image([
     'prompt' => 'A serene mountain landscape at sunset',
-    'model' => 'rundiffusion/juggernaut-lightning-flux',
+    'model' => 'google/gemini-3-pro-image',
     'width' => 1024,
     'height' => 1024,
 ]);
@@ -338,7 +338,7 @@ if ($url) {
     echo '<img src="' . htmlspecialchars($url) . '" alt="Generated" />';
 }
 PHP;
-        $html = "<h1>Image</h1><p>Basic PHP example using the Bitmesh SDK with <code>rundiffusion/juggernaut-lightning-flux</code>.</p>";
+        $html = "<h1>Image</h1><p>Basic PHP example using the Bitmesh SDK with <code>google/gemini-3-pro-image</code>.</p>";
         $html .= "<h2>Example code</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
 
         $consumerKey = (string) ($_ENV['BITMESH_CONSUMER_KEY'] ?? getenv('BITMESH_CONSUMER_KEY') ?: '');
@@ -349,7 +349,7 @@ PHP;
                 $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
                 $response = $client->image([
                     'prompt' => 'A cute robot reading a book, digital art',
-                    'model' => 'rundiffusion/juggernaut-lightning-flux',
+                    'model' => 'google/gemini-3-pro-image',
                     'width' => 1024,
                     'height' => 1024,
                 ]);
@@ -455,7 +455,7 @@ $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
 // POST /video — payload keys depend on the provider (often prompt, model, frame_images, …).
 $response = $client->video([
     'prompt' => 'A cat walking in the rain, cinematic',
-    'model' => 'minimax/video-01-director',
+    'model' => 'vidu/vidu-q3',
     'frame_images' => [
         [
             'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200&auto=format&fit=crop',
@@ -466,9 +466,9 @@ $response = $client->video([
 
 $id = $response['id'] ?? null;
 $status = $response['status'] ?? null;
-// BitmeshClient does not include a video job poll helper; follow provider docs or dashboard for status.
+// Poll with $client->getVideo($id) until status is "completed"; outputs.video_url is the video.
 PHP;
-        $html = "<h1>Video</h1><p>Start a video generation request with model <code>bytedance/seedance-1.0-lite</code> and starter <code>frame_images</code>. The PHP SDK does not ship a separate poll helper for jobs; use the API or dashboard for follow-up status.</p>";
+        $html = "<h1>Video</h1><p>Start a video generation request with model <code>vidu/vidu-q3</code> and starter <code>frame_images</code>. Poll it with <code>getVideo()</code> on the Video status page.</p>";
         $html .= "<h2>Example code</h2><pre>" . htmlspecialchars($snippet) . "</pre>";
 
         $consumerKey = (string) ($_ENV['BITMESH_CONSUMER_KEY'] ?? getenv('BITMESH_CONSUMER_KEY') ?: '');
@@ -479,7 +479,7 @@ PHP;
                 $client = new BitmeshClient($consumerKey, $consumerSecret, 180);
                 $response = $client->video([
                     'prompt' => 'A cat walking in the rain, cinematic, 4k',
-                    'model' => 'minimax/video-01-director',
+                    'model' => 'vidu/vidu-q3',
                     'frame_images' => [
                         [
                             'input_image' => 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200&auto=format&fit=crop',
