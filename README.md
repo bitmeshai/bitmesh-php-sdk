@@ -4,10 +4,11 @@ PHP SDK for calling the Bitmesh AI API (chat, image, video, image-to-video, tran
 
 ### Installation
 
-Install via Composer:
+Install via Composer. The package is not on Packagist yet, so add the GitHub repository first:
 
 ```bash
-composer require bitmeshai/bitmesh-php-sdk
+composer config repositories.bitmesh vcs https://github.com/bitmeshai/bitmesh-php-sdk
+composer require bitmeshai/bitmesh-php-sdk:^2.1
 ```
 
 ### Development and tests
@@ -43,10 +44,10 @@ Or keep the credentials in a local `phpunit.xml` (git-ignored; PHPUnit reads it 
 
 Never commit credentials to `phpunit.xml.dist`.
 
-To also run video tests (higher cost), include the `expensive` group:
+Video tests cost more and are left out by default. Run them on their own:
 
 ```bash
-./vendor/bin/phpunit --no-exclude-group expensive
+./vendor/bin/phpunit --group expensive
 ```
 
 Integration tests use fixture files under `tests/Fixtures/` (images and a sample MP3 for transcription).
